@@ -1,9 +1,22 @@
 let selectedDriverId = localStorage.getItem('pit_driver_id') || null;
 let currentRaceId = localStorage.getItem('pit_race_id') || null;
-let ws = null; // Variabile per il WebSocket
+let ws = null; 
 
 if ('wakeLock' in navigator) {
   navigator.wakeLock.request('screen').catch(console.error);
+}
+
+// Pulisce i tempi sporchi di Time2Race (da "00:00:47.262000" a "47.262")
+function formatLapTime(timeStr) {
+  if (!timeStr || timeStr === "00:00:00.000000") return '--:--.--';
+  let formatted = timeStr;
+  // Rimuove le ore se sono a zero
+  if (formatted.startsWith("00:")) formatted = formatted.substring(3);
+  // Rimuove i minuti se sono a zero (es. per piste da Go-Kart sotto il minuto)
+  if (formatted.startsWith("00:")) formatted = formatted.substring(3);
+  // Taglia i microsecondi in eccesso lasciando solo i millesimi
+  if (formatted.includes('.')) formatted = formatted.substring(0, formatted.indexOf('.') + 4);
+  return formatted;
 }
 
 function loadNewRace() {
@@ -14,98 +27,77 @@ function loadNewRace() {
     currentRaceId = match[1];
     localStorage.setItem('pit_race_id', currentRaceId);
     document.getElementById('driverSelect').innerHTML = '<option value="">Seleziona Pilota...</option>';
-    connectWebSocket(); // Avvia la connessione live
+    connectWebSocket(); 
   } else {
-    alert("Inserisci un link valido di Time2Race!");
+    alert("Inserisci un link valido (es. https://stg.mk.time2race.it/race/37/)");
   }
 }
 
 function changeDriver(id) {
   selectedDriverId = id;
   localStorage.setItem('pit_driver_id', id);
-  // Con il WebSocket non serve ricaricare, i dati si aggiorneranno al primo passaggio sul traguardo
 }
 
 function connectWebSocket() {
   if (!currentRaceId) return;
-  
-  // Chiude vecchie connessioni se presenti
   if (ws) ws.close();
 
-  // Costruisce l'URL diretto del WebSocket scoperto nel pannello Rete
   const wsUrl = `wss://api-stg.mk.time2race.it/live/${currentRaceId}/ranking/`;
-  console.log("Connessione Live a:", wsUrl);
-  
   ws = new WebSocket(wsUrl);
 
-  // Quando il server "spara" un nuovo tempo sul giro
   ws.onmessage = function(event) {
-    // Gestisce il caso in cui il server mandi un "ping" per tenere aperta la connessione
     if (event.data === 'ping' || event.data === 'pong') return;
     
     try {
       const payload = JSON.parse(event.data);
       
-      if (payload && payload.data) {
-        let driversList = [];
-        
-        // Trova dinamicamente l'array dei piloti (qualunque sia il nome che usano)
-        for (const key in payload.data) {
-          if (Array.isArray(payload.data[key])) {
-            driversList = payload.data[key];
-            break; 
-          }
-        }
+      // Time2Race manda i piloti nell'oggetto "drivers"
+      let driversList = payload.drivers;
+      
+      if (!driversList && payload.data && payload.data.drivers) {
+        driversList = payload.data.drivers;
+      }
 
-        if (driversList.length > 0) {
-          populateDriverDropdown(driversList);
-          updateDashboard(driversList);
-        }
+      if (driversList && driversList.length > 0) {
+        populateDriverDropdown(driversList);
+        updateDashboard(driversList);
       }
     } catch (err) {
-      console.log("Errore lettura dati:", err);
+      console.log("In attesa dati live...");
     }
   };
 
-  // Se la connessione cade (es. entri in un punto senza segnale nel paddock)
   ws.onclose = function() {
-    console.log("Connessione persa. Riconnessione in 3 secondi...");
-    setTimeout(connectWebSocket, 3000);
+    setTimeout(connectWebSocket, 3000); // Riconnessione automatica in caso di caduta linea
   };
 }
 
 function updateDashboard(driversList) {
   if (!selectedDriverId) return;
 
-  const myDriver = driversList.find(d => 
-    String(d.user_id) === String(selectedDriverId) || 
-    String(d.id) === String(selectedDriverId) ||
-    String(d.num) === String(selectedDriverId) ||
-    String(d.number) === String(selectedDriverId)
-  );
+  // Cerca il pilota usando l'ID univoco assegnato al menu a tendina
+  const myDriver = driversList.find(d => String(d.id) === String(selectedDriverId));
 
   if (myDriver) {
-    // Cerchiamo i campi in base ai nomi più usati nei sistemi di cronometraggio
-    document.getElementById('pos').innerText = `P${myDriver.position || myDriver.pos || myDriver.rank || myDriver.class_pos || '-'}`;
-    document.getElementById('lastLap').innerText = myDriver.last_lap || myDriver.lastlap || myDriver.lap_time || myDriver.last_time || '--:--.--';
-    document.getElementById('bestLap').innerText = myDriver.best_lap || myDriver.bestlap || myDriver.best_time || '--:--.--';
-    document.getElementById('gap').innerText = myDriver.gap_to_leader || myDriver.gap || myDriver.diff || myDriver.diff_first || '+0.0';
+    document.getElementById('pos').innerText = `P${myDriver.position || '-'}`;
+    document.getElementById('lastLap').innerText = formatLapTime(myDriver.lasttime);
+    document.getElementById('bestLap').innerText = formatLapTime(myDriver.besttime);
+    document.getElementById('gap').innerText = myDriver.difference ? `+${myDriver.difference}` : '+0.000';
   }
 }
 
 function populateDriverDropdown(drivers) {
   const select = document.getElementById('driverSelect');
   
+  // Popola la tendina solo se è vuota o ha solo l'opzione di default
   if (select.options.length <= 1 && drivers.length > 0) {
     select.innerHTML = '<option value="">Seleziona Pilota...</option>';
     drivers.forEach(d => {
-      // Identificativo pilota
       const opt = document.createElement('option');
-      opt.value = d.user_id || d.id || d.num || d.number;
+      opt.value = d.id; // Usa l'ID univoco di gara del pilota
       
-      // Nome e Numero da mostrare a tendina
-      const num = d.number || d.race_number || d.num || '';
-      const name = d.name || d.fullname || d.driver_name || d.competitor_name || (`Pilota ${opt.value}`);
+      const num = d.raceno || '';
+      const name = d.fullname || d.nickname || `Pilota ${d.id}`;
       
       opt.textContent = num ? `#${num} ${name}` : name;
       
@@ -114,10 +106,12 @@ function populateDriverDropdown(drivers) {
       }
       select.appendChild(opt);
     });
+    
+    // Forza il primo aggiornamento della dashboard subito dopo aver popolato la tendina
+    updateDashboard(drivers);
   }
 }
 
-// All'apertura dell'app, ricollegati all'ultima gara
 if (currentRaceId) {
   document.getElementById('raceLinkInput').value = `https://stg.mk.time2race.it/race/${currentRaceId}/`;
   connectWebSocket();
