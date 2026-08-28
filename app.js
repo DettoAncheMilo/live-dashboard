@@ -29,15 +29,17 @@ function changeDriver(id) {
 async function fetchTimingData() {
   if (!currentRaceId) return; 
 
-  // Endpoint corretto basato sui parametri di ricerca DataTables
   const targetApi = `https://api-stg.mk.time2race.it/api/public/races/?format=datatables&subscription_id=${currentRaceId}`;
-  const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetApi)}`;
+  
+  // Proxy AllOrigins al posto di corsproxy.io per evitare il 403
+  const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetApi)}`;
 
   try {
     const response = await fetch(proxyUrl);
+    if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
     const result = await response.json();
     
-    // DataTables restituisce l'array dei piloti nella proprietà 'data'
+    // Struttura dati DataTables
     const driversList = result.data || result.results || (Array.isArray(result) ? result : []); 
     
     populateDriverDropdown(driversList);
