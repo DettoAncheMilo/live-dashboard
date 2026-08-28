@@ -7,6 +7,13 @@ if ('wakeLock' in navigator) {
   navigator.wakeLock.request('screen').catch(console.error);
 }
 
+// INTERCETTATORE INFALLIBILE: Ascolta i cambi del menu ignorando i blocchi dell'HTML
+document.addEventListener('change', function(event) {
+  if (event.target && event.target.id === 'driverSelect') {
+    changeDriver(event.target.value);
+  }
+});
+
 // Pulisce i tempi (da "00:00:47.262000" a "47.262")
 function formatLapTime(timeStr) {
   if (!timeStr || timeStr === "00:00:00.000000") return '--:--.--';
@@ -33,6 +40,7 @@ function loadNewRace() {
 }
 
 function changeDriver(id) {
+  console.log("Cambio pilota rilevato! Nuovo ID:", id);
   selectedDriverId = id;
   localStorage.setItem('pit_driver_id', id);
   
@@ -71,6 +79,7 @@ function connectWebSocket() {
   };
 
   ws.onclose = function() {
+    console.log("WebSocket chiuso. Riconnessione tra 3 secondi...");
     setTimeout(connectWebSocket, 3000); 
   };
 }
@@ -95,11 +104,6 @@ function updateDashboard(driversList) {
 
 function populateDriverDropdown(drivers) {
   const select = document.getElementById('driverSelect');
-  
-  // SOLUZIONE: Questa riga forza il menu ad avvisare il codice quando tocchi un nome nuovo
-  select.onchange = function(event) {
-    changeDriver(event.target.value);
-  };
 
   if (select.options.length <= 1 && drivers.length > 0) {
     select.innerHTML = '<option value="">Seleziona Pilota...</option>';
@@ -125,11 +129,5 @@ function populateDriverDropdown(drivers) {
 // Avvio automatico se ricarichi la pagina
 if (currentRaceId) {
   document.getElementById('raceLinkInput').value = `https://stg.mk.time2race.it/race/${currentRaceId}/`;
-  
-  // Assicuriamoci che anche all'avvio il menu sia "in ascolto"
-  document.getElementById('driverSelect').onchange = function(event) {
-    changeDriver(event.target.value);
-  };
-  
   connectWebSocket();
 }
