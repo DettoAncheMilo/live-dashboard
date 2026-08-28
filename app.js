@@ -31,15 +31,14 @@ async function fetchTimingData() {
 
   const targetApi = `https://api-stg.mk.time2race.it/api/public/races/?format=datatables&subscription_id=${currentRaceId}`;
   
-  // Proxy AllOrigins al posto di corsproxy.io per evitare il 403
-  const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetApi)}`;
+  // Proxy CodeTabs per stabilità e superamento restrizioni CORS
+  const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetApi)}`;
 
   try {
     const response = await fetch(proxyUrl);
     if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
     const result = await response.json();
     
-    // Struttura dati DataTables
     const driversList = result.data || result.results || (Array.isArray(result) ? result : []); 
     
     populateDriverDropdown(driversList);
@@ -83,7 +82,7 @@ function populateDriverDropdown(drivers) {
 function startTimingLoop() {
   if (timingInterval) clearInterval(timingInterval);
   fetchTimingData();
-  timingInterval = setInterval(fetchTimingData, 1500);
+  timingInterval = setInterval(fetchTimingData, 3000); // Polling ogni 3 secondi
 }
 
 if (currentRaceId) {
