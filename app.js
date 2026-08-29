@@ -3,16 +3,21 @@ let currentRaceId = localStorage.getItem('pit_race_id') || null;
 let ws = null; 
 let lastKnownDrivers = []; 
 
+// Variabili per far scorrere il tempo in locale
+let localTimerInterval = null;
+let currentRaceSeconds = 0;
+let isSessionRunning = false;
+let sessionLapsToGo = 0;
+let isSessionEnded = false;
+
 if ('wakeLock' in navigator) {
   navigator.wakeLock.request('screen').catch(console.error);
 }
 
-// Funzione intelligente per trovare un ID univoco
 function getDriverId(d) {
   return d.id || d.user_id || d.raceno || d.fullname;
 }
 
-// Pulisce i tempi
 function formatLapTime(timeStr) {
   if (!timeStr || timeStr === "00:00:00.000000") return '--:--.--';
   let formatted = timeStr;
@@ -20,6 +25,25 @@ function formatLapTime(timeStr) {
   if (formatted.startsWith("00:")) formatted = formatted.substring(3);
   if (formatted.includes('.')) formatted = formatted.substring(0, formatted.indexOf('.') + 4);
   return formatted;
+}
+
+// Converte "00:15:57" in secondi totali per farli scorrere
+function timeStringToSeconds(str) {
+  if (!str) return 0;
+  const parts = str.split(':');
+  return (+parts[0]) * 3600 + (+parts[1]) * 60 + (+parts[2]);
+}
+
+// Converte i secondi in formato MM:SS o HH:MM:SS
+function secondsToTimeString(totalSeconds) {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  if (h > 0) {
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  } else {
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
 }
 
 function loadNewRace() {
@@ -51,7 +75,6 @@ function changeDriver() {
   }
 }
 
-// Ascoltatore infallibile per il menu a tendina
 document.addEventListener('change', function(event) {
   if (event.target && event.target.id === 'driverSelect') {
     changeDriver();
@@ -71,7 +94,7 @@ function connectWebSocket() {
     try {
       const payload = JSON.parse(event.data);
       
-      // AGGIORNAMENTO INFO SESSIONE (Tempo, Pausa, Fine)
+      // Sincronizza il tempo di gara (racetime) con il server
       const raceInfo = payload.race || (payload.data ? payload.data.race : null);
       if (raceInfo) updateSessionInfo(raceInfo);
 
@@ -92,32 +115,57 @@ function connectWebSocket() {
   };
 }
 
-// NUOVA FUNZIONE: Aggiorna il banner del tempo rimanente
+// Funzione che gestisce i dati ricevuti dal server
 function updateSessionInfo(race) {
-  const statusBox = document.getElementById('sessionStatus');
-  if (!statusBox) return; // Evita errori se non hai ancora inserito il div in HTML
+  isSessionEnded = race.endrace;
+  isSessionRunning = race.running;
+  sessionLapsToGo = race.lapstogo || 0;
+  
+  // Usa il racetime e lo converte in secondi
+  currentRaceSeconds = timeStringToSeconds(race.racetime || "00:00:00");
+  
+  renderSessionTimer();
 
-  if (race.endrace) {
-    statusBox.innerHTML = "🏁 <strong style='color: #ef4444;'>SESSIONE TERMINATA</strong> 🏁";
+  // Gestisce lo scorrimento locale ogni secondo
+  if (isSessionRunning && !isSessionEnded) {
+    if (!localTimerInterval) {
+      localTimerInterval = setInterval(() => {
+        currentRaceSeconds++;
+        renderSessionTimer();
+      }, 1000);
+    }
   } else {
-    let timeText = race.timetogo || '--:--:--';
-    // Rimuove le ore iniziali se la sessione dura meno di 60 minuti
-    if (timeText.startsWith("00:")) timeText = timeText.substring(3); 
-
-    let statusHtml = `⏱️ Tempo: <span style="color: #22c55e;">${timeText}</span>`;
-
-    // Se il tempo è fermo (es. bandiera rossa)
-    if (!race.running && timeText !== '--:--:--') {
-      statusHtml += ` <span style="color: #eab308; font-size: 0.9em;">(PAUSA)</span>`;
+    // Se la gara è in pausa o finita, ferma lo scorrimento
+    if (localTimerInterval) {
+      clearInterval(localTimerInterval);
+      localTimerInterval = null;
     }
-
-    // Se è una manche a giri prestabiliti
-    if (race.lapstogo > 0) {
-      statusHtml += ` &nbsp;|&nbsp; 🔄 Giri: <span style="color: #3b82f6;">${race.lapstogo}</span>`;
-    }
-
-    statusBox.innerHTML = statusHtml;
   }
+}
+
+// Funzione che aggiorna materialmente la grafica del banner
+function renderSessionTimer() {
+  const statusBox = document.getElementById('sessionStatus');
+  if (!statusBox) return;
+
+  if (isSessionEnded) {
+    statusBox.innerHTML = "🏁 <strong style='color: #ef4444;'>SESSIONE TERMINATA</strong> 🏁";
+    if (localTimerInterval) clearInterval(localTimerInterval);
+    return;
+  }
+
+  let timeText = secondsToTimeString(currentRaceSeconds);
+  let statusHtml = `⏱️ Gara: <span style="color: #22c55e;">${timeText}</span>`;
+
+  if (!isSessionRunning && currentRaceSeconds > 0) {
+    statusHtml += ` <span style="color: #eab308; font-size: 0.9em;">(PAUSA)</span>`;
+  }
+
+  if (sessionLapsToGo > 0) {
+    statusHtml += ` &nbsp;|&nbsp; 🔄 Giri: <span style="color: #3b82f6;">${sessionLapsToGo}</span>`;
+  }
+
+  statusBox.innerHTML = statusHtml;
 }
 
 function updateDashboard(driversList) {
