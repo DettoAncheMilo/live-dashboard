@@ -3,9 +3,8 @@ let currentRaceId = localStorage.getItem('pit_race_id') || null;
 let ws = null; 
 let lastKnownDrivers = []; 
 
-// Gestione cronometro continuo secondo per secondo
-let serverRaceSeconds = 0;
-let lastSyncTimestamp = 0;
+// Gestione cronometro con "Soft Sync"
+let localRaceSeconds = 0;
 let clockInterval = null;
 let currentRaceData = null;
 
@@ -114,20 +113,32 @@ function connectWebSocket() {
   };
 }
 
-// Sincronizza i dati dal server e avvia il timer a 1 secondo
+// SINCRONIZZAZIONE MORBIDA (Soft Sync)
 function updateSessionInfo(race) {
   currentRaceData = race;
-  serverRaceSeconds = timeStringToSeconds(race.racetime || "00:00:00");
-  lastSyncTimestamp = Date.now();
+  let serverSeconds = timeStringToSeconds(race.racetime || "00:00:00");
+
+  // Se è il primo avvio, O se la discrepanza è maggiore di 2 secondi (es. lag pesante o pausa), aggiorna.
+  // Altrimenti, fidati dell'orologio locale ed evita i "saltelli" all'indietro!
+  if (localRaceSeconds === 0 || Math.abs(localRaceSeconds - serverSeconds) > 2) {
+    localRaceSeconds = serverSeconds;
+  }
+
+  // Se l'orologio interno non è ancora partito, accendilo
+  if (!clockInterval) {
+    clockInterval = setInterval(() => {
+      // Avanza di 1 secondo solo se la gara è attiva (running: true)
+      if (currentRaceData && currentRaceData.running !== false && !currentRaceData.endrace) {
+        localRaceSeconds++;
+        renderSessionTimer();
+      }
+    }, 1000);
+  }
 
   renderSessionTimer();
-
-  if (!clockInterval) {
-    clockInterval = setInterval(renderSessionTimer, 1000);
-  }
 }
 
-// Calcola ed emette il tempo corrente fluido secondo per secondo
+// Scrive fisicamente a schermo
 function renderSessionTimer() {
   const statusBox = document.getElementById('sessionStatus');
   if (!statusBox || !currentRaceData) return;
@@ -137,18 +148,10 @@ function renderSessionTimer() {
     return;
   }
 
-  let displaySeconds = serverRaceSeconds;
-  
-  // Se la gara è attiva, aggiungiamo i secondi trascorsi dall'ultima sincronizzazione
-  if (currentRaceData.running !== false && lastSyncTimestamp > 0) {
-    const elapsedSinceSync = Math.floor((Date.now() - lastSyncTimestamp) / 1000);
-    displaySeconds += elapsedSinceSync;
-  }
-
-  let timeText = secondsToTimeString(displaySeconds);
+  let timeText = secondsToTimeString(localRaceSeconds);
   let statusHtml = `⏱️ Gara: <span style="color: #22c55e;">${timeText}</span>`;
 
-  if (currentRaceData.running === false && displaySeconds > 0) {
+  if (currentRaceData.running === false && localRaceSeconds > 0) {
     statusHtml += ` <span style="color: #eab308; font-size: 0.9em;">(PAUSA)</span>`;
   }
 
