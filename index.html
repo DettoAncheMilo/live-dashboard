@@ -7,16 +7,23 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background-color: #050505; color: #ffffff; font-family: 'Arial Black', sans-serif; padding: 10px; height: 100vh; display: flex; flex-direction: column; }
+    
     .header { display: flex; flex-direction: column; gap: 10px; padding: 10px; background: #151515; border-radius: 8px; margin-bottom: 10px; }
     .input-row { display: flex; width: 100%; gap: 10px; }
     input { flex: 1; padding: 10px; border-radius: 6px; border: 1px solid #444; background: #222; color: #fff; font-size: 1rem; }
     button { padding: 10px 15px; font-weight: bold; background: #ffcc00; color: #000; border: none; border-radius: 6px; cursor: pointer; text-transform: uppercase; }
+    
     .select-row { display: flex; width: 100%; justify-content: space-between; align-items: center; }
     select { font-size: 1.1rem; padding: 6px 12px; background: #252525; color: #fff; border: 1px solid #444; border-radius: 6px; font-weight: bold; max-width: 60%; }
+    
+    /* Nuovo stile per il banner Info Sessione */
+    .session-status { text-align: center; font-size: 1.2rem; font-weight: bold; color: white; padding: 10px; background: #1a1a1a; border-radius: 8px; margin-bottom: 10px; border: 1px solid #333; }
+    
     .grid { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 10px; flex: 1; }
     .card { background: #111; border: 2px solid #222; border-radius: 12px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; position: relative; }
     .label { font-size: 1.2rem; color: #888; text-transform: uppercase; position: absolute; top: 10px; }
     .value { font-size: 4.5rem; font-weight: 900; margin-top: 15px; }
+    
     .pos { color: #ffcc00; font-size: 6rem; }
     .last { color: #00e5ff; }
     .best { color: #d500f9; }
@@ -36,6 +43,9 @@
       </select>
     </div>
   </div>
+
+  <!-- Banner Info Sessione aggiunto qui -->
+  <div id="sessionStatus" class="session-status">⏱️ In attesa della sessione...</div>
 
   <div class="grid">
     <div class="card"><span class="label">Posizione</span><span class="value pos" id="pos">P-</span></div>

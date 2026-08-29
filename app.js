@@ -7,12 +7,12 @@ if ('wakeLock' in navigator) {
   navigator.wakeLock.request('screen').catch(console.error);
 }
 
-// Funzione intelligente per trovare un ID univoco, qualunque sia la gara
+// Funzione intelligente per trovare un ID univoco
 function getDriverId(d) {
   return d.id || d.user_id || d.raceno || d.fullname;
 }
 
-// Pulisce i tempi (da "00:00:47.262000" a "47.262")
+// Pulisce i tempi
 function formatLapTime(timeStr) {
   if (!timeStr || timeStr === "00:00:00.000000") return '--:--.--';
   let formatted = timeStr;
@@ -37,14 +37,12 @@ function loadNewRace() {
   }
 }
 
-// Lettura diretta e sicura del valore della tendina
 function changeDriver() {
   const selectElement = document.getElementById('driverSelect');
   const newId = selectElement.value;
   
   if (!newId) return;
 
-  console.log("Cambio pilota confermato! ID:", newId);
   selectedDriverId = newId;
   localStorage.setItem('pit_driver_id', newId);
   
@@ -53,7 +51,7 @@ function changeDriver() {
   }
 }
 
-// Aggiungiamo l'ascoltatore del tocco in modo infallibile
+// Ascoltatore infallibile per il menu a tendina
 document.addEventListener('change', function(event) {
   if (event.target && event.target.id === 'driverSelect') {
     changeDriver();
@@ -72,6 +70,11 @@ function connectWebSocket() {
     
     try {
       const payload = JSON.parse(event.data);
+      
+      // AGGIORNAMENTO INFO SESSIONE (Tempo, Pausa, Fine)
+      const raceInfo = payload.race || (payload.data ? payload.data.race : null);
+      if (raceInfo) updateSessionInfo(raceInfo);
+
       let driversList = payload.drivers || (payload.data ? payload.data.drivers : null);
 
       if (driversList && driversList.length > 0) {
@@ -85,15 +88,41 @@ function connectWebSocket() {
   };
 
   ws.onclose = function() {
-    console.log("WebSocket chiuso dal server. Riconnessione tra 3 secondi...");
     setTimeout(connectWebSocket, 3000); 
   };
+}
+
+// NUOVA FUNZIONE: Aggiorna il banner del tempo rimanente
+function updateSessionInfo(race) {
+  const statusBox = document.getElementById('sessionStatus');
+  if (!statusBox) return; // Evita errori se non hai ancora inserito il div in HTML
+
+  if (race.endrace) {
+    statusBox.innerHTML = "🏁 <strong style='color: #ef4444;'>SESSIONE TERMINATA</strong> 🏁";
+  } else {
+    let timeText = race.timetogo || '--:--:--';
+    // Rimuove le ore iniziali se la sessione dura meno di 60 minuti
+    if (timeText.startsWith("00:")) timeText = timeText.substring(3); 
+
+    let statusHtml = `⏱️ Tempo: <span style="color: #22c55e;">${timeText}</span>`;
+
+    // Se il tempo è fermo (es. bandiera rossa)
+    if (!race.running && timeText !== '--:--:--') {
+      statusHtml += ` <span style="color: #eab308; font-size: 0.9em;">(PAUSA)</span>`;
+    }
+
+    // Se è una manche a giri prestabiliti
+    if (race.lapstogo > 0) {
+      statusHtml += ` &nbsp;|&nbsp; 🔄 Giri: <span style="color: #3b82f6;">${race.lapstogo}</span>`;
+    }
+
+    statusBox.innerHTML = statusHtml;
+  }
 }
 
 function updateDashboard(driversList) {
   if (!selectedDriverId) return;
 
-  // Cerchiamo il pilota usando il nuovo sistema ID intelligente
   const myDriver = driversList.find(d => String(getDriverId(d)) === String(selectedDriverId));
 
   if (myDriver) {
@@ -112,12 +141,11 @@ function updateDashboard(driversList) {
 function populateDriverDropdown(drivers) {
   const select = document.getElementById('driverSelect');
 
-  // Popola solo se è vuoto
   if (select.options.length <= 1 && drivers.length > 0) {
     select.innerHTML = '<option value="">Seleziona Pilota...</option>';
     drivers.forEach(d => {
       const opt = document.createElement('option');
-      opt.value = getDriverId(d); // Usa l'ID intelligente
+      opt.value = getDriverId(d); 
       
       const num = d.raceno || '';
       const name = d.fullname || d.nickname || `Pilota ${getDriverId(d)}`;
