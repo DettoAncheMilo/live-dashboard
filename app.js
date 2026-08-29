@@ -3,12 +3,11 @@ let currentRaceId = localStorage.getItem('pit_race_id') || null;
 let ws = null; 
 let lastKnownDrivers = []; 
 
-// Variabili per far scorrere il tempo in locale
-let localTimerInterval = null;
-let currentRaceSeconds = 0;
-let isSessionRunning = false;
-let sessionLapsToGo = 0;
-let isSessionEnded = false;
+// Gestione cronometro continuo secondo per secondo
+let serverRaceSeconds = 0;
+let lastSyncTimestamp = 0;
+let clockInterval = null;
+let currentRaceData = null;
 
 if ('wakeLock' in navigator) {
   navigator.wakeLock.request('screen').catch(console.error);
@@ -27,14 +26,15 @@ function formatLapTime(timeStr) {
   return formatted;
 }
 
-// Converte "00:15:57" in secondi totali per farli scorrere
+// Converte "00:15:57" in secondi totali
 function timeStringToSeconds(str) {
   if (!str) return 0;
   const parts = str.split(':');
+  if (parts.length < 3) return 0;
   return (+parts[0]) * 3600 + (+parts[1]) * 60 + (+parts[2]);
 }
 
-// Converte i secondi in formato MM:SS o HH:MM:SS
+// Converte i secondi totali nel formato HH:MM:SS oppure MM:SS
 function secondsToTimeString(totalSeconds) {
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
@@ -94,7 +94,6 @@ function connectWebSocket() {
     try {
       const payload = JSON.parse(event.data);
       
-      // Sincronizza il tempo di gara (racetime) con il server
       const raceInfo = payload.race || (payload.data ? payload.data.race : null);
       if (raceInfo) updateSessionInfo(raceInfo);
 
@@ -115,54 +114,46 @@ function connectWebSocket() {
   };
 }
 
-// Funzione che gestisce i dati ricevuti dal server
+// Sincronizza i dati dal server e avvia il timer a 1 secondo
 function updateSessionInfo(race) {
-  isSessionEnded = race.endrace;
-  isSessionRunning = race.running;
-  sessionLapsToGo = race.lapstogo || 0;
-  
-  // Usa il racetime e lo converte in secondi
-  currentRaceSeconds = timeStringToSeconds(race.racetime || "00:00:00");
-  
+  currentRaceData = race;
+  serverRaceSeconds = timeStringToSeconds(race.racetime || "00:00:00");
+  lastSyncTimestamp = Date.now();
+
   renderSessionTimer();
 
-  // Gestisce lo scorrimento locale ogni secondo
-  if (isSessionRunning && !isSessionEnded) {
-    if (!localTimerInterval) {
-      localTimerInterval = setInterval(() => {
-        currentRaceSeconds++;
-        renderSessionTimer();
-      }, 1000);
-    }
-  } else {
-    // Se la gara è in pausa o finita, ferma lo scorrimento
-    if (localTimerInterval) {
-      clearInterval(localTimerInterval);
-      localTimerInterval = null;
-    }
+  if (!clockInterval) {
+    clockInterval = setInterval(renderSessionTimer, 1000);
   }
 }
 
-// Funzione che aggiorna materialmente la grafica del banner
+// Calcola ed emette il tempo corrente fluido secondo per secondo
 function renderSessionTimer() {
   const statusBox = document.getElementById('sessionStatus');
-  if (!statusBox) return;
+  if (!statusBox || !currentRaceData) return;
 
-  if (isSessionEnded) {
+  if (currentRaceData.endrace) {
     statusBox.innerHTML = "🏁 <strong style='color: #ef4444;'>SESSIONE TERMINATA</strong> 🏁";
-    if (localTimerInterval) clearInterval(localTimerInterval);
     return;
   }
 
-  let timeText = secondsToTimeString(currentRaceSeconds);
+  let displaySeconds = serverRaceSeconds;
+  
+  // Se la gara è attiva, aggiungiamo i secondi trascorsi dall'ultima sincronizzazione
+  if (currentRaceData.running !== false && lastSyncTimestamp > 0) {
+    const elapsedSinceSync = Math.floor((Date.now() - lastSyncTimestamp) / 1000);
+    displaySeconds += elapsedSinceSync;
+  }
+
+  let timeText = secondsToTimeString(displaySeconds);
   let statusHtml = `⏱️ Gara: <span style="color: #22c55e;">${timeText}</span>`;
 
-  if (!isSessionRunning && currentRaceSeconds > 0) {
+  if (currentRaceData.running === false && displaySeconds > 0) {
     statusHtml += ` <span style="color: #eab308; font-size: 0.9em;">(PAUSA)</span>`;
   }
 
-  if (sessionLapsToGo > 0) {
-    statusHtml += ` &nbsp;|&nbsp; 🔄 Giri: <span style="color: #3b82f6;">${sessionLapsToGo}</span>`;
+  if (currentRaceData.lapstogo > 0) {
+    statusHtml += ` &nbsp;|&nbsp; 🔄 Giri: <span style="color: #3b82f6;">${currentRaceData.lapstogo}</span>`;
   }
 
   statusBox.innerHTML = statusHtml;
