@@ -3,7 +3,7 @@ let currentRaceId = localStorage.getItem('pit_race_id') || null;
 let ws = null; 
 let lastKnownDrivers = []; 
 
-// Gestione cronometro
+// Gestione cronometro locale (Soft Sync)
 let localRaceSeconds = 0;
 let clockInterval = null;
 let currentRaceData = null;
@@ -133,27 +133,30 @@ async function connectMylaps(sessionId) {
   if (ws) ws.close();
 
   try {
-    console.log("Richiesta Token tramite il server Cloudflare...");
+    console.log("Richiesta Token a SignalR tramite il server Cloudflare...");
     
     const proxyUrl = 'https://mylaps-proxy.nico-mila91.workers.dev/?url=';
-    const settingsUrl = encodeURIComponent('https://speedhive.mylaps.com/api/clientSettings');
+    const negotiateUrl = encodeURIComponent('https://notifications.speedhive.com/api/negotiate?negotiateVersion=1');
     
-    // Leggiamo la risposta di Mylaps come "testo puro" per evitare il crash del JSON
-    const response = await fetch(proxyUrl + settingsUrl);
+    // Richiesta POST obbligatoria per farci aprire la porta da SignalR
+    const response = await fetch(proxyUrl + negotiateUrl, { method: 'POST' });
     const responseText = await response.text(); 
     
-    console.log("🕵️ RISPOSTA REALE DI MYLAPS AL PROXY:", responseText);
-    
     const settings = JSON.parse(responseText);
-    const token = settings.LiveTimingNotificationsToken || settings.liveTimingNotificationsToken;
-    if(!token) throw new Error("Token non trovato nella risposta JSON!");
+    const token = settings.accessToken;
+    let endpointUrl = settings.url;
 
-    const wsUrl = `wss://livetimingnotifications-eu-prd-sig01.service.signalr.net/client/?hub=livetiminghub&access_token=${token}`;
+    if(!token || !endpointUrl) throw new Error("Token o URL mancanti nella risposta!");
+
+    // Convertiamo l'indirizzo HTTP di Mylaps in WebSocket Sicuro (WSS)
+    endpointUrl = endpointUrl.replace("https://", "wss://");
+    const wsUrl = `${endpointUrl}&access_token=${token}`;
     ws = new WebSocket(wsUrl);
+    
     const END_CHAR = String.fromCharCode(0x1E); 
 
     ws.onopen = function() {
-      console.log("Connesso a Mylaps! Eseguo Handshake SignalR...");
+      console.log("Connesso a Mylaps! Iscrizione alla gara...");
       ws.send('{"protocol":"json","version":1}' + END_CHAR);
       
       ws.send(JSON.stringify({
@@ -171,6 +174,7 @@ async function connectMylaps(sessionId) {
           try {
             const payload = JSON.parse(msg);
             
+            // Decodifica i tempi live
             if(payload.type === 1 && payload.arguments && payload.arguments[0] && payload.arguments[0].results) {
                const rawDrivers = payload.arguments[0].results;
                
