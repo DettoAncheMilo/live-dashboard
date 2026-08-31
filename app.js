@@ -7,14 +7,14 @@ let lastKnownDrivers = [];
 let localRaceSeconds = 0;
 let clockInterval = null;
 let currentRaceData = null;
-let activeEngine = 'time2race'; // Può essere 'time2race' o 'mylaps'
+let activeEngine = 'time2race';
 
 if ('wakeLock' in navigator) {
   navigator.wakeLock.request('screen').catch(console.error);
 }
 
 function getDriverId(d) {
-  return d.id || d.user_id || d.raceno || d.fullname || d.no || d.nam; // Aggiunte le etichette Mylaps (no, nam)
+  return d.id || d.user_id || d.raceno || d.fullname;
 }
 
 function formatLapTime(timeStr) {
@@ -44,7 +44,7 @@ function secondsToTimeString(totalSeconds) {
   }
 }
 
-// MOTORE IBRIDO: Riconosce quale link hai incollato
+// MOTORE IBRIDO: Riconoscimento automatico del circuito
 function loadNewRace() {
   const inputUrl = document.getElementById('raceLinkInput').value;
   
@@ -54,16 +54,33 @@ function loadNewRace() {
       currentRaceId = match[1];
       activeEngine = 'time2race';
       localStorage.setItem('pit_race_id', currentRaceId);
-      document.getElementById('driverSelect').innerHTML = '<option value="">Seleziona Pilota...</option>';
-      lastKnownDrivers = []; 
-      connectWebSocket(); 
+      resetDashboard();
+      connectTime2Race(); 
     }
   } else if (inputUrl.includes('speedhive.mylaps.com')) {
-    // Il link è Mylaps. Lanciamo l'avviso per il blocco Token/CORS.
-    alert("🚦 MOTORE MYLAPS RILEVATO!\n\nI server di Mylaps sono protetti da Token Microsoft Azure temporanei. Poiché la dashboard è su GitHub (senza un server backend), Microsoft blocca la connessione automatica per motivi di sicurezza (CORS).\n\nIl codice sorgente dell'app contiene già il decodificatore per Mylaps, pronto per quando aggiungerai un server!");
+    // Estrae l'ID della sessione dal link (es. KKKINDLQ-2147483897-1073742199)
+    const match = inputUrl.match(/sessions\/([A-Za-z0-9\-]+)/);
+    if (match && match[1]) {
+      currentRaceId = match[1];
+      activeEngine = 'mylaps';
+      localStorage.setItem('pit_race_id', currentRaceId);
+      resetDashboard();
+      connectMylaps(currentRaceId);
+    } else {
+      alert("Link Mylaps non valido. Assicurati che contenga '/sessions/...'");
+    }
   } else {
     alert("Inserisci un link valido (Time2Race o Mylaps)!");
   }
+}
+
+function resetDashboard() {
+  document.getElementById('driverSelect').innerHTML = '<option value="">Seleziona Pilota...</option>';
+  lastKnownDrivers = [];
+  localRaceSeconds = 0;
+  currentRaceData = null;
+  if(clockInterval) clearInterval(clockInterval);
+  clockInterval = null;
 }
 
 function changeDriver() {
@@ -81,8 +98,10 @@ document.addEventListener('change', function(event) {
   }
 });
 
-// CONNESSIONE TIME2RACE
-function connectWebSocket() {
+// ==========================================
+// 1. MOTORE TIME2RACE
+// ==========================================
+function connectTime2Race() {
   if (!currentRaceId || activeEngine !== 'time2race') return;
   if (ws) ws.close();
 
@@ -102,59 +121,92 @@ function connectWebSocket() {
         populateDriverDropdown(driversList);
         updateDashboard(driversList);
       }
-    } catch (err) {
-      console.log("In attesa dati live...");
-    }
+    } catch (err) {}
   };
-
-  ws.onclose = function() {
-    setTimeout(connectWebSocket, 3000); 
-  };
+  ws.onclose = function() { setTimeout(connectTime2Race, 3000); };
 }
 
-/* 
-=====================================================
-  STRUTTURA MOTORE MYLAPS (DORMIENTE)
-  Pronto per quando il progetto avrà un server backend
-=====================================================
-function connectMylaps(sessionToken, wssUrl) {
-  ws = new WebSocket(wssUrl);
-  // SignalR richiede il carattere invisibile 0x1E alla fine di ogni comando
-  const END_CHAR = String.fromCharCode(0x1E);
+// ==========================================
+// 2. MOTORE MYLAPS (Tramite Cloudflare)
+// ==========================================
+async function connectMylaps(sessionId) {
+  if (!currentRaceId || activeEngine !== 'mylaps') return;
+  if (ws) ws.close();
 
-  ws.onopen = function() {
-    // 1. Handshake iniziale
-    ws.send('{"protocol":"json","version":1}' + END_CHAR);
-    // 2. Iscrizione alla gara specifica (JoinGroup)
-    ws.send(JSON.stringify({
-      arguments: [`session-${sessionToken}`],
-      invocationId: "0",
-      target: "JoinGroup",
-      type: 1
-    }) + END_CHAR);
-  };
+  try {
+    console.log("Richiesta Token tramite il server Cloudflare...");
+    
+    // Usiamo il tuo server per fregare il blocco CORS di Microsoft
+    const proxyUrl = 'https://mylaps-proxy.nico-mila91.workers.dev/?url=';
+    const settingsUrl = encodeURIComponent('https://speedhive.mylaps.com/api/clientSettings');
+    
+    const response = await fetch(proxyUrl + settingsUrl);
+    const settings = await response.json();
+    
+    // Peschiamo il Token
+    const token = settings.LiveTimingNotificationsToken || settings.liveTimingNotificationsToken;
+    if(!token) throw new Error("Token non trovato!");
 
-  ws.onmessage = function(event) {
-    // Dividiamo i messaggi usando il carattere separatore di SignalR
-    const messages = event.data.split(END_CHAR);
-    messages.forEach(msg => {
-      if(msg) {
-        try {
-          const payload = JSON.parse(msg);
-          // Decodifica etichette Mylaps: btTm (Miglior Giro), lsTm (Ultimo Giro), pos (Posizione)
-          if(payload.type === 1 && payload.arguments && payload.arguments[0].results) {
-             const driversList = payload.arguments[0].results;
-             // Da qui il codice riprende la nostra normale updateDashboard()!
-          }
-        } catch(e) {}
-      }
-    });
-  };
+    const wsUrl = `wss://livetimingnotifications-eu-prd-sig01.service.signalr.net/client/?hub=livetiminghub&access_token=${token}`;
+    ws = new WebSocket(wsUrl);
+    const END_CHAR = String.fromCharCode(0x1E); // Carattere segreto di Microsoft
+
+    ws.onopen = function() {
+      console.log("Connesso a Mylaps! Eseguo Handshake SignalR...");
+      ws.send('{"protocol":"json","version":1}' + END_CHAR);
+      
+      ws.send(JSON.stringify({
+        arguments: [`session-${sessionId}`],
+        invocationId: "0",
+        target: "JoinGroup",
+        type: 1
+      }) + END_CHAR);
+    };
+
+    ws.onmessage = function(event) {
+      const messages = event.data.split(END_CHAR);
+      messages.forEach(msg => {
+        if(msg) {
+          try {
+            const payload = JSON.parse(msg);
+            
+            // Quando arrivano i tempi sul giro...
+            if(payload.type === 1 && payload.arguments && payload.arguments[0] && payload.arguments[0].results) {
+               const rawDrivers = payload.arguments[0].results;
+               
+               // TRADUTTORE: Trasformiamo i dati di Mylaps in formato Time2Race!
+               const mappedDrivers = rawDrivers.map(d => ({
+                 id: d.id,
+                 raceno: d.no,
+                 fullname: d.nam,
+                 position: d.pos,
+                 lasttime: d.lsTm,
+                 besttime: d.btTm,
+                 difference: d.df
+               }));
+               
+               lastKnownDrivers = mappedDrivers;
+               populateDriverDropdown(mappedDrivers);
+               updateDashboard(mappedDrivers);
+               
+               // Mylaps non invia i secondi di gara come T2R, quindi simuliamo la scritta
+               document.getElementById('sessionStatus').innerHTML = "🏁 <strong style='color: #22c55e;'>MYLAPS LIVE TIMING ATTIVO</strong> 🏁";
+            }
+          } catch(e) {}
+        }
+      });
+    };
+    ws.onclose = function() { setTimeout(() => connectMylaps(sessionId), 3000); };
+
+  } catch (error) {
+    console.error("Errore server Cloudflare:", error);
+    document.getElementById('sessionStatus').innerHTML = "⚠️ ERRORE DI CONNESSIONE MYLAPS";
+  }
 }
-=====================================================
-*/
 
-// SINCRONIZZAZIONE MORBIDA (Soft Sync)
+// ==========================================
+// GRAFICA E INTERFACCIA (In comune)
+// ==========================================
 function updateSessionInfo(race) {
   currentRaceData = race;
   let serverSeconds = timeStringToSeconds(race.racetime || "00:00:00");
@@ -162,7 +214,6 @@ function updateSessionInfo(race) {
   if (localRaceSeconds === 0 || Math.abs(localRaceSeconds - serverSeconds) > 2) {
     localRaceSeconds = serverSeconds;
   }
-
   if (!clockInterval) {
     clockInterval = setInterval(() => {
       if (currentRaceData && currentRaceData.running !== false && !currentRaceData.endrace) {
@@ -182,10 +233,8 @@ function renderSessionTimer() {
     statusBox.innerHTML = "🏁 <strong style='color: #ef4444;'>SESSIONE TERMINATA</strong> 🏁";
     return;
   }
-
   let timeText = secondsToTimeString(localRaceSeconds);
   let statusHtml = `⏱️ Gara: <span style="color: #22c55e;">${timeText}</span>`;
-
   if (currentRaceData.running === false && localRaceSeconds > 0) {
     statusHtml += ` <span style="color: #eab308; font-size: 0.9em;">(PAUSA)</span>`;
   }
@@ -200,11 +249,10 @@ function updateDashboard(driversList) {
   const myDriver = driversList.find(d => String(getDriverId(d)) === String(selectedDriverId));
 
   if (myDriver) {
-    // La logica supporta sia l'etichetta di Time2Race (.difference) sia se un domani passassi Mylaps (.df)
-    document.getElementById('pos').innerText = `P${myDriver.position || myDriver.pos || '-'}`;
-    document.getElementById('lastLap').innerText = formatLapTime(myDriver.lasttime || myDriver.lsTm);
-    document.getElementById('bestLap').innerText = formatLapTime(myDriver.besttime || myDriver.btTm);
-    document.getElementById('gap').innerText = myDriver.difference || myDriver.df ? `+${myDriver.difference || myDriver.df}` : '+0.000';
+    document.getElementById('pos').innerText = `P${myDriver.position || '-'}`;
+    document.getElementById('lastLap').innerText = formatLapTime(myDriver.lasttime);
+    document.getElementById('bestLap').innerText = formatLapTime(myDriver.besttime);
+    document.getElementById('gap').innerText = myDriver.difference ? `+${myDriver.difference}` : '+0.000';
   } else {
     document.getElementById('pos').innerText = `P-`;
     document.getElementById('lastLap').innerText = '--:--.--';
@@ -220,9 +268,10 @@ function populateDriverDropdown(drivers) {
     drivers.forEach(d => {
       const opt = document.createElement('option');
       opt.value = getDriverId(d); 
-      const num = d.raceno || d.no || '';
-      const name = d.fullname || d.nickname || d.nam || `Pilota ${getDriverId(d)}`;
+      const num = d.raceno || '';
+      const name = d.fullname || `Pilota ${getDriverId(d)}`;
       opt.textContent = num ? `#${num} ${name}` : name;
+      
       if (String(opt.value) === String(selectedDriverId)) opt.selected = true;
       select.appendChild(opt);
     });
@@ -230,7 +279,16 @@ function populateDriverDropdown(drivers) {
   }
 }
 
+// Ripristina l'ultima corsa salvata al ricaricamento della pagina
 if (currentRaceId) {
-  document.getElementById('raceLinkInput').value = `https://stg.mk.time2race.it/race/${currentRaceId}/`;
-  connectWebSocket();
+  // Controlla se la vecchia sessione era T2R o Mylaps in base al formato dell'ID
+  if (currentRaceId.includes('-')) {
+    activeEngine = 'mylaps';
+    document.getElementById('raceLinkInput').value = `https://speedhive.mylaps.com/livetiming/EVENT/sessions/${currentRaceId}`;
+    connectMylaps(currentRaceId);
+  } else {
+    activeEngine = 'time2race';
+    document.getElementById('raceLinkInput').value = `https://stg.mk.time2race.it/race/${currentRaceId}/`;
+    connectTime2Race();
+  }
 }
