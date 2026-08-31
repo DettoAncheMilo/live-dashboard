@@ -14,7 +14,7 @@ if ('wakeLock' in navigator) {
 }
 
 function getDriverId(d) {
-  return d.id || d.user_id || d.raceno || d.fullname;
+  return d.id || d.user_id || d.raceno || d.fullname || d.no || d.nam;
 }
 
 function formatLapTime(timeStr) {
@@ -58,7 +58,6 @@ function loadNewRace() {
       connectTime2Race(); 
     }
   } else if (inputUrl.includes('speedhive.mylaps.com')) {
-    // Estrae l'ID della sessione dal link (es. KKKINDLQ-2147483897-1073742199)
     const match = inputUrl.match(/sessions\/([A-Za-z0-9\-]+)/);
     if (match && match[1]) {
       currentRaceId = match[1];
@@ -136,20 +135,22 @@ async function connectMylaps(sessionId) {
   try {
     console.log("Richiesta Token tramite il server Cloudflare...");
     
-    // Usiamo il tuo server per fregare il blocco CORS di Microsoft
     const proxyUrl = 'https://mylaps-proxy.nico-mila91.workers.dev/?url=';
     const settingsUrl = encodeURIComponent('https://speedhive.mylaps.com/api/clientSettings');
     
+    // Leggiamo la risposta di Mylaps come "testo puro" per evitare il crash del JSON
     const response = await fetch(proxyUrl + settingsUrl);
-    const settings = await response.json();
+    const responseText = await response.text(); 
     
-    // Peschiamo il Token
+    console.log("🕵️ RISPOSTA REALE DI MYLAPS AL PROXY:", responseText);
+    
+    const settings = JSON.parse(responseText);
     const token = settings.LiveTimingNotificationsToken || settings.liveTimingNotificationsToken;
-    if(!token) throw new Error("Token non trovato!");
+    if(!token) throw new Error("Token non trovato nella risposta JSON!");
 
     const wsUrl = `wss://livetimingnotifications-eu-prd-sig01.service.signalr.net/client/?hub=livetiminghub&access_token=${token}`;
     ws = new WebSocket(wsUrl);
-    const END_CHAR = String.fromCharCode(0x1E); // Carattere segreto di Microsoft
+    const END_CHAR = String.fromCharCode(0x1E); 
 
     ws.onopen = function() {
       console.log("Connesso a Mylaps! Eseguo Handshake SignalR...");
@@ -170,11 +171,9 @@ async function connectMylaps(sessionId) {
           try {
             const payload = JSON.parse(msg);
             
-            // Quando arrivano i tempi sul giro...
             if(payload.type === 1 && payload.arguments && payload.arguments[0] && payload.arguments[0].results) {
                const rawDrivers = payload.arguments[0].results;
                
-               // TRADUTTORE: Trasformiamo i dati di Mylaps in formato Time2Race!
                const mappedDrivers = rawDrivers.map(d => ({
                  id: d.id,
                  raceno: d.no,
@@ -189,7 +188,6 @@ async function connectMylaps(sessionId) {
                populateDriverDropdown(mappedDrivers);
                updateDashboard(mappedDrivers);
                
-               // Mylaps non invia i secondi di gara come T2R, quindi simuliamo la scritta
                document.getElementById('sessionStatus').innerHTML = "🏁 <strong style='color: #22c55e;'>MYLAPS LIVE TIMING ATTIVO</strong> 🏁";
             }
           } catch(e) {}
@@ -268,8 +266,8 @@ function populateDriverDropdown(drivers) {
     drivers.forEach(d => {
       const opt = document.createElement('option');
       opt.value = getDriverId(d); 
-      const num = d.raceno || '';
-      const name = d.fullname || `Pilota ${getDriverId(d)}`;
+      const num = d.raceno || d.no || '';
+      const name = d.fullname || d.nickname || d.nam || `Pilota ${getDriverId(d)}`;
       opt.textContent = num ? `#${num} ${name}` : name;
       
       if (String(opt.value) === String(selectedDriverId)) opt.selected = true;
@@ -279,9 +277,7 @@ function populateDriverDropdown(drivers) {
   }
 }
 
-// Ripristina l'ultima corsa salvata al ricaricamento della pagina
 if (currentRaceId) {
-  // Controlla se la vecchia sessione era T2R o Mylaps in base al formato dell'ID
   if (currentRaceId.includes('-')) {
     activeEngine = 'mylaps';
     document.getElementById('raceLinkInput').value = `https://speedhive.mylaps.com/livetiming/EVENT/sessions/${currentRaceId}`;
