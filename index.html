@@ -18,11 +18,10 @@
     
     .session-status { text-align: center; font-size: 1.2rem; font-weight: bold; color: white; padding: 10px; background: #1a1a1a; border-radius: 8px; margin-bottom: 10px; border: 1px solid #333; }
     
-    /* Layout a griglia aggiornato per il Radar */
     .grid { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1.2fr; gap: 10px; flex: 1; }
     
     .card { background: #111; border: 2px solid #222; border-radius: 12px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; position: relative; }
-    .card-full { grid-column: span 2; background: #111; border: 2px solid #222; border-radius: 12px; display: flex; flex-direction: column; justify-content: center; align-items: center; position: relative; padding: 25px 5px 10px 5px; }
+    .card-full { grid-column: span 2; background: #111; border: 2px solid #222; border-radius: 12px; display: flex; flex-direction: column; justify-content: center; align-items: center; position: relative; padding: 25px 10px 10px 10px; }
     
     .label { font-size: 1.2rem; color: #888; text-transform: uppercase; position: absolute; top: 10px; }
     .value { font-weight: 900; margin-top: 15px; }
@@ -35,13 +34,11 @@
     .radar-item { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; }
     .radar-title { color: #555; font-size: 1.1rem; text-transform: uppercase; margin-bottom: 5px; letter-spacing: 1px; }
     
-    .radar-center { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 0.8; }
-    .helmet { font-size: 4rem; line-height: 1; margin-bottom: 5px; filter: drop-shadow(0px 4px 2px rgba(0,0,0,0.6)); }
-    .you-box { display: flex; align-items: center; gap: 8px; }
-    .you-text { color: #fff; font-size: 1.5rem; font-weight: 900; letter-spacing: 1px; }
-    .arrow { color: #ffcc00; font-size: 1.8rem; }
+    .radar-center { display: flex; align-items: center; justify-content: center; flex: 1; height: 100%; }
+    .you-box { display: flex; align-items: center; justify-content: center; gap: 15px; }
+    .you-text { color: #fff; font-size: 3.5rem; font-weight: 900; letter-spacing: 1px; }
+    .arrow { color: #ffcc00; font-size: 2.5rem; }
     
-    /* I dati rivali vengono impilati per non stringere troppo il layout orizzontale */
     .rival { color: #00e5ff; font-size: 2rem; display: flex; flex-direction: column; text-align: center; line-height: 1.1; margin-top: 0; }
     .rival-num { color: #fff; font-size: 2rem; }
   </style>
@@ -63,37 +60,26 @@
   <div id="sessionStatus" class="session-status">⏱️ In attesa di connessione...</div>
 
   <div class="grid">
-    <!-- RIGA SUPERIORE: Posizione e Gap (a destra) -->
     <div class="card"><span class="label">Posizione</span><span class="value pos" id="pos">P-</span></div>
     <div class="card"><span class="label">Distacco Leader</span><span class="value gap" id="gap">+0.0</span></div>
     
-    <!-- RIGA INFERIORE: Radar Pista Orizzontale -->
     <div class="card-full">
       <span class="label">Radar Pista</span>
       <div class="radar-container">
         
-        <!-- Lato Sinistro (Dietro) -->
         <div class="radar-item">
           <span class="radar-title">Dietro</span>
           <span class="value rival" id="driverBehind">--</span>
         </div>
         
-        <!-- Centro (YOU + Frecce) -->
         <div class="radar-center">
-          <span class="helmet">
-            <!-- Icona vettoriale Casco Integrale Racing -->
-            <svg viewBox="0 0 24 24" width="55" height="55" fill="#ffffff" style="filter: drop-shadow(0px 3px 2px rgba(0,0,0,0.8));">
-              <path d="M12,2C6.48,2 2,6.48 2,12v7c0,1.1 0.9,2 2,2h16c1.1,0 2,-0.9 2,-2v-7C22,6.48 17.52,2 12,2z M19,13H9c-0.55,0 -1,-0.45 -1,-1v-1c0,-0.55 0.45,-1 1,-1h10c0.55,0 1,0.45 1,1v1C20,12.55 19.55,13 19,13z"/>
-            </svg>
-          </span>
           <div class="you-box">
             <span class="arrow">◀</span>
-            <span class="you-text">YOU</span>
+            <span class="you-text" id="myDriverNum">#--</span>
             <span class="arrow">▶</span>
           </div>
         </div>
 
-        <!-- Lato Destro (Avanti) -->
         <div class="radar-item">
           <span class="radar-title">Avanti</span>
           <span class="value rival" id="driverAhead">--</span>

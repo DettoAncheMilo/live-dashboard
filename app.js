@@ -225,14 +225,11 @@ function renderSessionTimer() {
   statusBox.innerHTML = statusHtml;
 }
 
-// Helper formattazione per Radar - Crea righe HTML per schermi piccoli
 function formatRivalInfo(driver) {
   if (!driver) return '--';
   const num = driver.raceno || driver.no || '';
   const best = formatLapTime(driver.besttime || driver.btTm);
-  
   const nameStr = num ? `#${num}` : (driver.fullname || driver.nam || driver.nickname || 'Pilota').substring(0, 8);
-  
   return `<span class="rival-num">${nameStr}</span><span>${best}</span>`;
 }
 
@@ -243,9 +240,15 @@ function updateDashboard(driversList) {
   if (myDriver) {
     let myPos = parseInt(myDriver.position || myDriver.pos, 10);
     
+    // Aggiornamento Box P1 e Gap
     document.getElementById('pos').innerText = `P${myPos || '-'}`;
     document.getElementById('gap').innerText = myDriver.difference || myDriver.df ? `+${myDriver.difference || myDriver.df}` : '+0.000';
 
+    // Aggiornamento Numero Pilota Centrale
+    const myNum = myDriver.raceno || myDriver.no || '';
+    document.getElementById('myDriverNum').innerText = myNum ? `#${myNum}` : 'ME';
+
+    // Pilota Avanti
     let stringAhead = '--';
     if (myPos > 1) {
       const driverAhead = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos - 1);
@@ -255,6 +258,7 @@ function updateDashboard(driversList) {
     }
     document.getElementById('driverAhead').innerHTML = stringAhead;
 
+    // Pilota Dietro
     let stringBehind = '--';
     const driverBehind = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos + 1);
     
@@ -270,6 +274,7 @@ function updateDashboard(driversList) {
     document.getElementById('driverAhead').innerHTML = '--';
     document.getElementById('driverBehind').innerHTML = '--';
     document.getElementById('gap').innerText = '+0.000';
+    document.getElementById('myDriverNum').innerText = '#--';
   }
 }
 
