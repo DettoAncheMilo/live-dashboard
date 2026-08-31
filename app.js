@@ -133,12 +133,9 @@ async function connectMylaps(sessionId) {
   if (ws) ws.close();
 
   try {
-    console.log("Richiesta Token a SignalR tramite il server Cloudflare...");
-    
     const proxyUrl = 'https://mylaps-proxy.nico-mila91.workers.dev/?url=';
     const negotiateUrl = encodeURIComponent('https://notifications.speedhive.com/api/negotiate?negotiateVersion=1');
     
-    // Richiesta POST obbligatoria per farci aprire la porta da SignalR
     const response = await fetch(proxyUrl + negotiateUrl, { method: 'POST' });
     const responseText = await response.text(); 
     
@@ -148,7 +145,6 @@ async function connectMylaps(sessionId) {
 
     if(!token || !endpointUrl) throw new Error("Token o URL mancanti nella risposta!");
 
-    // Convertiamo l'indirizzo HTTP di Mylaps in WebSocket Sicuro (WSS)
     endpointUrl = endpointUrl.replace("https://", "wss://");
     const wsUrl = `${endpointUrl}&access_token=${token}`;
     ws = new WebSocket(wsUrl);
@@ -156,9 +152,7 @@ async function connectMylaps(sessionId) {
     const END_CHAR = String.fromCharCode(0x1E); 
 
     ws.onopen = function() {
-      console.log("Connesso a Mylaps! Iscrizione alla gara...");
       ws.send('{"protocol":"json","version":1}' + END_CHAR);
-      
       ws.send(JSON.stringify({
         arguments: [`session-${sessionId}`],
         invocationId: "0",
@@ -174,7 +168,6 @@ async function connectMylaps(sessionId) {
           try {
             const payload = JSON.parse(msg);
             
-            // Decodifica i tempi live
             if(payload.type === 1 && payload.arguments && payload.arguments[0] && payload.arguments[0].results) {
                const rawDrivers = payload.arguments[0].results;
                
@@ -201,7 +194,6 @@ async function connectMylaps(sessionId) {
     ws.onclose = function() { setTimeout(() => connectMylaps(sessionId), 3000); };
 
   } catch (error) {
-    console.error("Errore server Cloudflare:", error);
     document.getElementById('sessionStatus').innerHTML = "⚠️ ERRORE DI CONNESSIONE MYLAPS";
   }
 }
@@ -246,19 +238,60 @@ function renderSessionTimer() {
   statusBox.innerHTML = statusHtml;
 }
 
+// Helper per creare la stringa dei rivali (Es: #27 ⏱ 1:13.450)
+function formatRivalInfo(driver) {
+  if (!driver) return '--';
+  const num = driver.raceno || driver.no || '';
+  const best = formatLapTime(driver.besttime || driver.btTm);
+  
+  if (num) {
+    return `#${num} ⏱ ${best}`;
+  } else {
+    // Se non ha il numero di gara, mostra le prime lettere del nome
+    const name = driver.fullname || driver.nam || driver.nickname || 'Pilota';
+    const shortName = name.substring(0, 8);
+    return `${shortName} ⏱ ${best}`;
+  }
+}
+
+// AGGIORNAMENTO DASHBOARD CON LOGICA RADAR AVANTI/DIETRO
 function updateDashboard(driversList) {
   if (!selectedDriverId) return;
   const myDriver = driversList.find(d => String(getDriverId(d)) === String(selectedDriverId));
 
   if (myDriver) {
-    document.getElementById('pos').innerText = `P${myDriver.position || '-'}`;
-    document.getElementById('lastLap').innerText = formatLapTime(myDriver.lasttime);
-    document.getElementById('bestLap').innerText = formatLapTime(myDriver.besttime);
-    document.getElementById('gap').innerText = myDriver.difference ? `+${myDriver.difference}` : '+0.000';
+    let myPos = parseInt(myDriver.position || myDriver.pos, 10);
+    
+    // Aggiorna Posizione e Distacco
+    document.getElementById('pos').innerText = `P${myPos || '-'}`;
+    document.getElementById('gap').innerText = myDriver.difference || myDriver.df ? `+${myDriver.difference || myDriver.df}` : '+0.000';
+
+    // Logica Pilota Avanti
+    let stringAhead = '--';
+    if (myPos > 1) {
+      const driverAhead = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos - 1);
+      stringAhead = driverAhead ? formatRivalInfo(driverAhead) : '--';
+    } else if (myPos === 1) {
+      stringAhead = 'LEADER 🥇';
+    }
+    document.getElementById('driverAhead').innerText = stringAhead;
+
+    // Logica Pilota Dietro
+    let stringBehind = '--';
+    const driverBehind = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos + 1);
+    
+    if (driverBehind) {
+      stringBehind = formatRivalInfo(driverBehind);
+    } else if (myPos > 0 && driversList.length > 0) {
+      // Se non c'è nessuno dietro ed è in una posizione valida, significa che è l'ultimo
+      stringBehind = 'NESSUNO';
+    }
+    document.getElementById('driverBehind').innerText = stringBehind;
+
   } else {
     document.getElementById('pos').innerText = `P-`;
-    document.getElementById('lastLap').innerText = '--:--.--';
-    document.getElementById('bestLap').innerText = '--:--.--';
+    document.getElementById('driverAhead').innerText = '--';
+    document.getElementById('driverBehind').innerText = '--';
     document.getElementById('gap').innerText = '+0.000';
   }
 }
