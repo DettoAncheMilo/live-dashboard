@@ -3,7 +3,6 @@ let currentRaceId = localStorage.getItem('pit_race_id') || null;
 let ws = null; 
 let lastKnownDrivers = []; 
 
-// Gestione cronometro locale (Soft Sync)
 let localRaceSeconds = 0;
 let clockInterval = null;
 let currentRaceData = null;
@@ -44,7 +43,6 @@ function secondsToTimeString(totalSeconds) {
   }
 }
 
-// MOTORE IBRIDO: Riconoscimento automatico del circuito
 function loadNewRace() {
   const inputUrl = document.getElementById('raceLinkInput').value;
   
@@ -97,9 +95,6 @@ document.addEventListener('change', function(event) {
   }
 });
 
-// ==========================================
-// 1. MOTORE TIME2RACE
-// ==========================================
 function connectTime2Race() {
   if (!currentRaceId || activeEngine !== 'time2race') return;
   if (ws) ws.close();
@@ -125,9 +120,6 @@ function connectTime2Race() {
   ws.onclose = function() { setTimeout(connectTime2Race, 3000); };
 }
 
-// ==========================================
-// 2. MOTORE MYLAPS (Tramite Cloudflare)
-// ==========================================
 async function connectMylaps(sessionId) {
   if (!currentRaceId || activeEngine !== 'mylaps') return;
   if (ws) ws.close();
@@ -167,10 +159,8 @@ async function connectMylaps(sessionId) {
         if(msg) {
           try {
             const payload = JSON.parse(msg);
-            
             if(payload.type === 1 && payload.arguments && payload.arguments[0] && payload.arguments[0].results) {
                const rawDrivers = payload.arguments[0].results;
-               
                const mappedDrivers = rawDrivers.map(d => ({
                  id: d.id,
                  raceno: d.no,
@@ -198,9 +188,6 @@ async function connectMylaps(sessionId) {
   }
 }
 
-// ==========================================
-// GRAFICA E INTERFACCIA (In comune)
-// ==========================================
 function updateSessionInfo(race) {
   currentRaceData = race;
   let serverSeconds = timeStringToSeconds(race.racetime || "00:00:00");
@@ -238,23 +225,17 @@ function renderSessionTimer() {
   statusBox.innerHTML = statusHtml;
 }
 
-// Helper per creare la stringa dei rivali (Es: #27 ⏱ 1:13.450)
+// Helper formattazione per Radar - Crea righe HTML per schermi piccoli
 function formatRivalInfo(driver) {
   if (!driver) return '--';
   const num = driver.raceno || driver.no || '';
   const best = formatLapTime(driver.besttime || driver.btTm);
   
-  if (num) {
-    return `#${num} ⏱ ${best}`;
-  } else {
-    // Se non ha il numero di gara, mostra le prime lettere del nome
-    const name = driver.fullname || driver.nam || driver.nickname || 'Pilota';
-    const shortName = name.substring(0, 8);
-    return `${shortName} ⏱ ${best}`;
-  }
+  const nameStr = num ? `#${num}` : (driver.fullname || driver.nam || driver.nickname || 'Pilota').substring(0, 8);
+  
+  return `<span class="rival-num">${nameStr}</span><span>${best}</span>`;
 }
 
-// AGGIORNAMENTO DASHBOARD CON LOGICA RADAR AVANTI/DIETRO
 function updateDashboard(driversList) {
   if (!selectedDriverId) return;
   const myDriver = driversList.find(d => String(getDriverId(d)) === String(selectedDriverId));
@@ -262,36 +243,32 @@ function updateDashboard(driversList) {
   if (myDriver) {
     let myPos = parseInt(myDriver.position || myDriver.pos, 10);
     
-    // Aggiorna Posizione e Distacco
     document.getElementById('pos').innerText = `P${myPos || '-'}`;
     document.getElementById('gap').innerText = myDriver.difference || myDriver.df ? `+${myDriver.difference || myDriver.df}` : '+0.000';
 
-    // Logica Pilota Avanti
     let stringAhead = '--';
     if (myPos > 1) {
       const driverAhead = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos - 1);
       stringAhead = driverAhead ? formatRivalInfo(driverAhead) : '--';
     } else if (myPos === 1) {
-      stringAhead = 'LEADER 🥇';
+      stringAhead = '<span class="rival-num" style="color:#ffcc00">LEADER</span><span>🥇</span>';
     }
-    document.getElementById('driverAhead').innerText = stringAhead;
+    document.getElementById('driverAhead').innerHTML = stringAhead;
 
-    // Logica Pilota Dietro
     let stringBehind = '--';
     const driverBehind = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos + 1);
     
     if (driverBehind) {
       stringBehind = formatRivalInfo(driverBehind);
     } else if (myPos > 0 && driversList.length > 0) {
-      // Se non c'è nessuno dietro ed è in una posizione valida, significa che è l'ultimo
-      stringBehind = 'NESSUNO';
+      stringBehind = '<span class="rival-num" style="color:#888">NESSUNO</span>';
     }
-    document.getElementById('driverBehind').innerText = stringBehind;
+    document.getElementById('driverBehind').innerHTML = stringBehind;
 
   } else {
     document.getElementById('pos').innerText = `P-`;
-    document.getElementById('driverAhead').innerText = '--';
-    document.getElementById('driverBehind').innerText = '--';
+    document.getElementById('driverAhead').innerHTML = '--';
+    document.getElementById('driverBehind').innerHTML = '--';
     document.getElementById('gap').innerText = '+0.000';
   }
 }
