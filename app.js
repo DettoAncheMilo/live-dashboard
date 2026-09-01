@@ -3,7 +3,6 @@ let currentRaceId = localStorage.getItem('pit_race_id') || null;
 let ws = null; 
 let lastKnownDrivers = []; 
 
-// Variabili per il Banner unificato
 let sessionTimeLeft = "--:--";
 let myDriverLaps = "-";
 let activeEngine = 'time2race';
@@ -20,6 +19,10 @@ function setButtonState(state) {
     btn.style.backgroundColor = '#22c55e'; 
     btn.style.color = '#ffffff';
     btn.innerText = 'ONLINE ✓';
+  } else if (state === 'connecting') {
+    btn.style.backgroundColor = '#3b82f6'; 
+    btn.style.color = '#ffffff';
+    btn.innerText = 'CONNECTING ⏳';
   } else if (state === 'error') {
     btn.style.backgroundColor = '#ef4444'; 
     btn.style.color = '#ffffff';
@@ -30,6 +33,12 @@ function setButtonState(state) {
     btn.innerText = 'LOAD';
   }
 }
+
+document.addEventListener('input', function(event) {
+  if (event.target && event.target.id === 'raceLinkInput') {
+    setButtonState('default');
+  }
+});
 
 function getDriverId(d) {
   return d.id || d.user_id || d.raceno || d.fullname || d.no || d.nam;
@@ -44,7 +53,6 @@ function formatLapTime(timeStr) {
   return formatted;
 }
 
-// Funzione matematica per convertire un tempo in millisecondi e poter fare le differenze
 function parseTimeToMs(str) {
   if (!str || str.includes('-') || str === '--:--.--') return 0;
   let parts = str.split(':');
@@ -79,7 +87,6 @@ function secondsToTimeString(totalSeconds) {
   }
 }
 
-// Funzione che aggiorna il banner in alto
 function updateBanner() {
   const statusBox = document.getElementById('sessionStatus');
   if (!statusBox) return;
@@ -88,6 +95,9 @@ function updateBanner() {
 
 function loadNewRace() {
   const inputUrl = document.getElementById('raceLinkInput').value;
+  if (!inputUrl) return;
+
+  setButtonState('connecting');
   
   if (inputUrl.includes('time2race.it')) {
     const match = inputUrl.match(/race\/(\d+)/); 
@@ -107,20 +117,24 @@ function loadNewRace() {
       resetDashboard();
       connectMylaps(currentRaceId);
     } else {
+      setButtonState('error');
       alert("Invalid Mylaps link. Ensure it contains '/sessions/...'");
     }
   } else {
+    setButtonState('error');
     alert("Please insert a valid link (Time2Race or Mylaps)!");
   }
 }
 
 function resetDashboard() {
-  setButtonState('default');
   sessionTimeLeft = "--:--";
   myDriverLaps = "-";
   document.getElementById('sessionStatus').innerHTML = '⏱️ Waiting for connection...';
   document.getElementById('driverSelect').innerHTML = '<option value="">Select Rider...</option>';
   lastKnownDrivers = [];
+  
+  selectedDriverId = null;
+  localStorage.removeItem('pit_driver_id');
 }
 
 function changeDriver() {
@@ -138,9 +152,6 @@ document.addEventListener('change', function(event) {
   }
 });
 
-// ==========================================
-// 1. MOTORE TIME2RACE
-// ==========================================
 function connectTime2Race() {
   if (!currentRaceId || activeEngine !== 'time2race') return;
   if (ws) ws.close();
@@ -170,12 +181,11 @@ function connectTime2Race() {
       }
     } catch (err) {}
   };
+  
+  ws.onerror = function() { setButtonState('error'); };
   ws.onclose = function() { setTimeout(connectTime2Race, 3000); };
 }
 
-// ==========================================
-// 2. MOTORE MYLAPS
-// ==========================================
 async function connectMylaps(sessionId) {
   if (!currentRaceId || activeEngine !== 'mylaps') return;
   if (ws) ws.close();
@@ -254,6 +264,8 @@ async function connectMylaps(sessionId) {
         }
       });
     };
+    
+    ws.onerror = function() { setButtonState('error'); };
     ws.onclose = function() { setTimeout(() => connectMylaps(sessionId), 3000); };
 
   } catch (error) {
@@ -262,14 +274,10 @@ async function connectMylaps(sessionId) {
   }
 }
 
-// ==========================================
-// GRAFICA E INTERFACCIA: RADAR AVANZATO
-// ==========================================
 function formatRivalInfo(driver, myDriver) {
   if (!driver) return '--';
   const num = driver.raceno || driver.no || '';
   
-  // 1. Usa l'Ultimo Giro
   const theirLastTimeRaw = driver.lasttime || driver.lsTm;
   const theirLastLap = formatLapTime(theirLastTimeRaw);
   const nameStr = num ? `#${num}` : (driver.fullname || driver.nam || driver.nickname || 'Rider').substring(0, 8);
@@ -277,7 +285,6 @@ function formatRivalInfo(driver, myDriver) {
   let gapHtml = '';
   
   if (myDriver) {
-    // 2. Calcolo GAP FISICO in pista
     let myDiffStr = String(myDriver.difference || myDriver.df || '0');
     let theirDiffStr = String(driver.difference || driver.df || '0');
     let isLapped = myDiffStr.toLowerCase().includes('lap') || theirDiffStr.toLowerCase().includes('lap') || 
@@ -293,7 +300,6 @@ function formatRivalInfo(driver, myDriver) {
       physicalGapText = `GAP +${gap.toFixed(3)}`;
     }
 
-    // 3. Calcolo DELTA PASSO (Ultimo giro tuo vs Ultimo giro suo)
     let paceDeltaText = '';
     let myLastTimeRaw = myDriver.lasttime || myDriver.lsTm;
     let myMs = parseTimeToMs(formatLapTime(myLastTimeRaw));
@@ -302,7 +308,7 @@ function formatRivalInfo(driver, myDriver) {
     if (myMs > 0 && theirMs > 0) {
       let diffMs = theirMs - myMs;
       let sign = diffMs > 0 ? '+' : '';
-      let color = diffMs > 0 ? '#22c55e' : '#ef4444'; // Verde = Lui più lento, Rosso = Lui più veloce
+      let color = diffMs > 0 ? '#22c55e' : '#ef4444'; 
       paceDeltaText = `<span style="color: ${color};">Δ ${sign}${(diffMs/1000).toFixed(3)}</span>`;
     }
 
@@ -330,7 +336,6 @@ function updateDashboard(driversList) {
     let myPos = parseInt(myDriver.position || myDriver.pos, 10);
     document.getElementById('pos').innerText = `P${myPos || '-'}`;
 
-    // NUOVA LOGICA: Gap dal Leader calcolato sui BEST LAP (Ideale per Qualifiche)
     const leaderDriver = driversList.find(d => parseInt(d.position || d.pos, 10) === 1);
     
     if (myPos === 1) {
@@ -343,7 +348,6 @@ function updateDashboard(driversList) {
         let gapMs = Math.abs(myBestMs - leaderBestMs);
         document.getElementById('gap').innerText = `+${(gapMs / 1000).toFixed(3)}`;
       } else {
-        // Fallback di sicurezza se nessuno ha ancora chiuso un giro
         document.getElementById('gap').innerText = myDriver.difference || myDriver.df ? `+${myDriver.difference || myDriver.df}` : '+0.000';
       }
     } else {
@@ -353,7 +357,6 @@ function updateDashboard(driversList) {
     const myNum = myDriver.raceno || myDriver.no || '';
     document.getElementById('myDriverNum').innerText = myNum ? `#${myNum}` : 'ME';
 
-    // Pilota Avanti
     let stringAhead = '--';
     if (myPos > 1) {
       const driverAhead = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos - 1);
@@ -363,7 +366,6 @@ function updateDashboard(driversList) {
     }
     document.getElementById('driverAhead').innerHTML = stringAhead;
 
-    // Pilota Dietro
     let stringBehind = '--';
     const driverBehind = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos + 1);
     
