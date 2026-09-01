@@ -269,7 +269,7 @@ function formatRivalInfo(driver, myDriver) {
   if (!driver) return '--';
   const num = driver.raceno || driver.no || '';
   
-  // 1. Usa l'Ultimo Giro invece del Best
+  // 1. Usa l'Ultimo Giro
   const theirLastTimeRaw = driver.lasttime || driver.lsTm;
   const theirLastLap = formatLapTime(theirLastTimeRaw);
   const nameStr = num ? `#${num}` : (driver.fullname || driver.nam || driver.nickname || 'Rider').substring(0, 8);
@@ -312,7 +312,6 @@ function formatRivalInfo(driver, myDriver) {
     `;
   }
 
-  // Costruisce la colonna HTML per il pilota avversario
   return `
     <span class="rival-num">${nameStr}</span>
     <span style="font-size: 1.4rem; color: #ccc;">⏱ ${theirLastLap}</span>
@@ -329,14 +328,32 @@ function updateDashboard(driversList) {
     updateBanner();
 
     let myPos = parseInt(myDriver.position || myDriver.pos, 10);
-    
     document.getElementById('pos').innerText = `P${myPos || '-'}`;
-    document.getElementById('gap').innerText = myDriver.difference || myDriver.df ? `+${myDriver.difference || myDriver.df}` : '+0.000';
+
+    // NUOVA LOGICA: Gap dal Leader calcolato sui BEST LAP (Ideale per Qualifiche)
+    const leaderDriver = driversList.find(d => parseInt(d.position || d.pos, 10) === 1);
+    
+    if (myPos === 1) {
+      document.getElementById('gap').innerText = '+0.000';
+    } else if (leaderDriver) {
+      let myBestMs = parseTimeToMs(formatLapTime(myDriver.besttime || myDriver.btTm));
+      let leaderBestMs = parseTimeToMs(formatLapTime(leaderDriver.besttime || leaderDriver.btTm));
+      
+      if (myBestMs > 0 && leaderBestMs > 0) {
+        let gapMs = Math.abs(myBestMs - leaderBestMs);
+        document.getElementById('gap').innerText = `+${(gapMs / 1000).toFixed(3)}`;
+      } else {
+        // Fallback di sicurezza se nessuno ha ancora chiuso un giro
+        document.getElementById('gap').innerText = myDriver.difference || myDriver.df ? `+${myDriver.difference || myDriver.df}` : '+0.000';
+      }
+    } else {
+      document.getElementById('gap').innerText = myDriver.difference || myDriver.df ? `+${myDriver.difference || myDriver.df}` : '+0.000';
+    }
 
     const myNum = myDriver.raceno || myDriver.no || '';
     document.getElementById('myDriverNum').innerText = myNum ? `#${myNum}` : 'ME';
 
-    // Pilota Avanti (Gli passiamo anche i tuoi dati per poter fare la differenza matematica)
+    // Pilota Avanti
     let stringAhead = '--';
     if (myPos > 1) {
       const driverAhead = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos - 1);
@@ -346,7 +363,7 @@ function updateDashboard(driversList) {
     }
     document.getElementById('driverAhead').innerHTML = stringAhead;
 
-    // Pilota Dietro (Stessa cosa qui)
+    // Pilota Dietro
     let stringBehind = '--';
     const driverBehind = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos + 1);
     
