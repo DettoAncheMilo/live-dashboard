@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Pit Dashboard</title>
+  <title>Pit Dashboard - COMMAND CENTER</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background-color: #050505; color: #ffffff; font-family: 'Arial Black', sans-serif; padding: 10px; height: 100vh; display: flex; flex-direction: column; }
@@ -41,6 +41,14 @@
     
     .rival { color: #00e5ff; font-size: 2rem; display: flex; flex-direction: column; text-align: center; line-height: 1.1; margin-top: 0; }
     .rival-num { color: #fff; font-size: 2rem; }
+
+    /* PANNELLO COMANDI PIT WALL */
+    .command-panel { display: flex; gap: 10px; margin-top: 10px; width: 100%; }
+    .cmd-btn { flex: 1; padding: 18px 5px; font-weight: 900; font-size: 1.1rem; border: none; border-radius: 8px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; }
+    .btn-push { background-color: #22c55e; color: #fff; border: 2px solid #16a34a; }
+    .btn-slow { background-color: #facc15; color: #000; border: 2px solid #ca8a04; }
+    .btn-box { background-color: #ef4444; color: #fff; border: 2px solid #dc2626; }
+    .cmd-btn:active { transform: scale(0.95); opacity: 0.8; }
   </style>
 </head>
 <body>
@@ -89,7 +97,14 @@
     </div>
   </div>
 
- <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+  <!-- PULSANTIERA PIT WALL -->
+  <div class="command-panel">
+    <button class="cmd-btn btn-push" onclick="sendPitCommand('PUSH PUSH', 'GREEN')">PUSH</button>
+    <button class="cmd-btn btn-slow" onclick="sendPitCommand('SLOW', 'YELLOW')">SLOW</button>
+    <button class="cmd-btn btn-box" onclick="sendPitCommand('BOX BOX', 'RED')">BOX</button>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

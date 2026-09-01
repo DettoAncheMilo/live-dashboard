@@ -44,7 +44,7 @@ function formatLapTime(timeStr) {
   return formatted;
 }
 
-// Funzione matematica per convertire un tempo in millisecondi e poter fare le differenze
+// Funzione matematica per convertire un tempo in millisecondi
 function parseTimeToMs(str) {
   if (!str || str.includes('-') || str === '--:--.--') return 0;
   let parts = str.split(':');
@@ -122,7 +122,6 @@ function resetDashboard() {
   document.getElementById('driverSelect').innerHTML = '<option value="">Select Rider...</option>';
   lastKnownDrivers = [];
   
-  // CORREZIONE: Cancella il pilota precedente per evitare conflitti con le piste nuove
   selectedDriverId = null;
   localStorage.removeItem('pit_driver_id');
 }
@@ -135,7 +134,6 @@ function changeDriver() {
   localStorage.setItem('pit_driver_id', newId);
   if (lastKnownDrivers.length > 0) updateDashboard(lastKnownDrivers);
   
-  // IL GRILLETTO: Spara i dati alla LilyGO appena scegli il pilota
   sendConfigToLilyGO();
 }
 
@@ -276,7 +274,6 @@ function formatRivalInfo(driver, myDriver) {
   if (!driver) return '--';
   const num = driver.raceno || driver.no || '';
   
-  // 1. Usa l'Ultimo Giro
   const theirLastTimeRaw = driver.lasttime || driver.lsTm;
   const theirLastLap = formatLapTime(theirLastTimeRaw);
   const nameStr = num ? `#${num}` : (driver.fullname || driver.nam || driver.nickname || 'Rider').substring(0, 8);
@@ -284,7 +281,6 @@ function formatRivalInfo(driver, myDriver) {
   let gapHtml = '';
   
   if (myDriver) {
-    // 2. Calcolo GAP FISICO in pista
     let myDiffStr = String(myDriver.difference || myDriver.df || '0');
     let theirDiffStr = String(driver.difference || driver.df || '0');
     let isLapped = myDiffStr.toLowerCase().includes('lap') || theirDiffStr.toLowerCase().includes('lap') || 
@@ -300,7 +296,6 @@ function formatRivalInfo(driver, myDriver) {
       physicalGapText = `GAP +${gap.toFixed(3)}`;
     }
 
-    // 3. Calcolo DELTA PASSO (Ultimo giro tuo vs Ultimo giro suo)
     let paceDeltaText = '';
     let myLastTimeRaw = myDriver.lasttime || myDriver.lsTm;
     let myMs = parseTimeToMs(formatLapTime(myLastTimeRaw));
@@ -309,7 +304,7 @@ function formatRivalInfo(driver, myDriver) {
     if (myMs > 0 && theirMs > 0) {
       let diffMs = theirMs - myMs;
       let sign = diffMs > 0 ? '+' : '';
-      let color = diffMs > 0 ? '#22c55e' : '#ef4444'; // Verde = Lui più lento, Rosso = Lui più veloce
+      let color = diffMs > 0 ? '#22c55e' : '#ef4444'; 
       paceDeltaText = `<span style="color: ${color};">Δ ${sign}${(diffMs/1000).toFixed(3)}</span>`;
     }
 
@@ -337,7 +332,6 @@ function updateDashboard(driversList) {
     let myPos = parseInt(myDriver.position || myDriver.pos, 10);
     document.getElementById('pos').innerText = `P${myPos || '-'}`;
 
-    // NUOVA LOGICA: Gap dal Leader calcolato sui BEST LAP (Ideale per Qualifiche)
     const leaderDriver = driversList.find(d => parseInt(d.position || d.pos, 10) === 1);
     
     if (myPos === 1) {
@@ -350,7 +344,6 @@ function updateDashboard(driversList) {
         let gapMs = Math.abs(myBestMs - leaderBestMs);
         document.getElementById('gap').innerText = `+${(gapMs / 1000).toFixed(3)}`;
       } else {
-        // Fallback di sicurezza se nessuno ha ancora chiuso un giro
         document.getElementById('gap').innerText = myDriver.difference || myDriver.df ? `+${myDriver.difference || myDriver.df}` : '+0.000';
       }
     } else {
@@ -360,7 +353,6 @@ function updateDashboard(driversList) {
     const myNum = myDriver.raceno || myDriver.no || '';
     document.getElementById('myDriverNum').innerText = myNum ? `#${myNum}` : 'ME';
 
-    // Pilota Avanti
     let stringAhead = '--';
     if (myPos > 1) {
       const driverAhead = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos - 1);
@@ -370,7 +362,6 @@ function updateDashboard(driversList) {
     }
     document.getElementById('driverAhead').innerHTML = stringAhead;
 
-    // Pilota Dietro
     let stringBehind = '--';
     const driverBehind = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos + 1);
     
@@ -423,11 +414,12 @@ if (currentRaceId) {
 // ==========================================
 // TRASMETTITORE IOT (MQTT per LilyGO)
 // ==========================================
-// Si connette al server pubblico HiveMQ tramite porta sicura (8884)
 const mqttClient = new Paho.MQTT.Client("broker.hivemq.com", 8884, "PitWall_Web_" + parseInt(Math.random() * 1000));
+let isMqttConnected = false;
 
 mqttClient.onConnectionLost = function(responseObject) {
   console.log("Antenna MQTT Disconnessa:", responseObject.errorMessage);
+  isMqttConnected = false;
   setTimeout(connectMQTT, 5000); 
 };
 
@@ -436,15 +428,16 @@ function connectMQTT() {
     useSSL: true,
     onSuccess: function() {
       console.log("✅ Connesso al Broker MQTT! Pronto a trasmettere alla moto.");
-      sendConfigToLilyGO(); // Invia i dati salvati appena si connette
+      isMqttConnected = true;
+      sendConfigToLilyGO(); 
     }
   });
 }
 
+// Invia Dati Corsa
 function sendConfigToLilyGO() {
-  if (!currentRaceId || !selectedDriverId) return;
+  if (!currentRaceId || !selectedDriverId || !isMqttConnected) return;
   
-  // Crea il pacchetto dati da inviare alla LilyGO
   const payload = JSON.stringify({
     engine: activeEngine,
     raceId: currentRaceId,
@@ -452,17 +445,42 @@ function sendConfigToLilyGO() {
   });
 
   const message = new Paho.MQTT.Message(payload);
-  // Questo è il tuo "Canale Radio" personale. Copialo, ci servirà nel codice C++!
   message.destinationName = "milo/pitboard/config"; 
-  message.retained = true; // Salva l'ultimo messaggio così se la moto si riavvia lo ritrova subito
+  message.retained = true; 
   
   try {
     mqttClient.send(message);
     console.log("📡 Parametri inviati alla LilyGO:", payload);
-  } catch(e) {
-    console.log("Errore di trasmissione, MQTT non pronto.");
-  }
+  } catch(e) {}
 }
 
-// Avvia la connessione all'apertura dell'app
+// INVIA COMANDI PIT WALL (PUSH, SLOW, BOX)
+window.sendPitCommand = function(commandText, colorCode) {
+  if (!isMqttConnected) {
+    alert("⚠️ Connessione radio non attiva. Attendi...");
+    return;
+  }
+
+  const payload = JSON.stringify({
+    cmd: commandText,
+    color: colorCode
+  });
+
+  const message = new Paho.MQTT.Message(payload);
+  message.destinationName = "milo/pitboard/command"; // Nuovo canale specifico per i comandi[cite: 2]
+  message.retained = false; // Non viene salvato, è un comando istantaneo
+  
+  try {
+    mqttClient.send(message);
+    console.log("🚩 Comando PitWall Inviato:", payload);
+    
+    // Piccolo feedback visivo (fa brillare i bordi dello schermo di bianco per 1 secondo)
+    document.body.style.border = "4px solid white";
+    setTimeout(() => { document.body.style.border = "none"; }, 500);
+
+  } catch(e) {
+    console.log("Errore invio comando", e);
+  }
+};
+
 connectMQTT();
