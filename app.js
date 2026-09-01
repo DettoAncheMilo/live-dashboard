@@ -44,6 +44,23 @@ function formatLapTime(timeStr) {
   return formatted;
 }
 
+// Funzione matematica per convertire un tempo in millisecondi e poter fare le differenze
+function parseTimeToMs(str) {
+  if (!str || str.includes('-') || str === '--:--.--') return 0;
+  let parts = str.split(':');
+  let secs = 0;
+  let ms = 0;
+  let lastPart = parts.pop(); 
+  let secParts = lastPart.split('.');
+  secs += parseInt(secParts[0], 10) || 0;
+  if(secParts[1]) ms = parseInt(secParts[1].padEnd(3, '0').substring(0,3), 10) || 0;
+  
+  if(parts.length > 0) secs += parseInt(parts.pop(), 10) * 60;
+  if(parts.length > 0) secs += parseInt(parts.pop(), 10) * 3600;
+  
+  return (secs * 1000) + ms;
+}
+
 function timeStringToSeconds(str) {
   if (!str) return 0;
   const parts = str.split(':');
@@ -202,18 +219,14 @@ async function connectMylaps(sessionId) {
             if(payload.type === 1 && payload.arguments && payload.arguments[0]) {
                const arg = payload.arguments[0];
 
-               // CATTURA IL CRONOMETRO DAI PACCHETTI SEPARATI (tss = Time Session Status)
                if (arg.tss) sessionTimeLeft = arg.tss;
                else if (arg.timeRemaining) sessionTimeLeft = arg.timeRemaining;
                else if (arg.timeToFinish) sessionTimeLeft = arg.timeToFinish;
                
                updateBanner();
 
-               // CATTURA LA CLASSIFICA E I GIRI
                if (arg.results) {
                  const mappedDrivers = arg.results.map(d => {
-                   
-                   // Sistema infallibile per trovare i giri in Mylaps
                    let lapsCount = '-';
                    if ('lc' in d) lapsCount = d.lc;
                    else if ('l' in d) lapsCount = d.l;
@@ -250,14 +263,61 @@ async function connectMylaps(sessionId) {
 }
 
 // ==========================================
-// GRAFICA E INTERFACCIA
+// GRAFICA E INTERFACCIA: RADAR AVANZATO
 // ==========================================
-function formatRivalInfo(driver) {
+function formatRivalInfo(driver, myDriver) {
   if (!driver) return '--';
   const num = driver.raceno || driver.no || '';
-  const best = formatLapTime(driver.besttime || driver.btTm);
+  
+  // 1. Usa l'Ultimo Giro invece del Best
+  const theirLastTimeRaw = driver.lasttime || driver.lsTm;
+  const theirLastLap = formatLapTime(theirLastTimeRaw);
   const nameStr = num ? `#${num}` : (driver.fullname || driver.nam || driver.nickname || 'Rider').substring(0, 8);
-  return `<span class="rival-num">${nameStr}</span><span>${best}</span>`;
+  
+  let gapHtml = '';
+  
+  if (myDriver) {
+    // 2. Calcolo GAP FISICO in pista
+    let myDiffStr = String(myDriver.difference || myDriver.df || '0');
+    let theirDiffStr = String(driver.difference || driver.df || '0');
+    let isLapped = myDiffStr.toLowerCase().includes('lap') || theirDiffStr.toLowerCase().includes('lap') || 
+                   myDiffStr.toLowerCase().includes('gir') || theirDiffStr.toLowerCase().includes('gir');
+                   
+    let physicalGapText = '';
+    if (isLapped) {
+      physicalGapText = 'LAPPED';
+    } else {
+      let d1 = parseFloat(myDiffStr.replace('+', '').replace(',', '.')) || 0;
+      let d2 = parseFloat(theirDiffStr.replace('+', '').replace(',', '.')) || 0;
+      let gap = Math.abs(d1 - d2);
+      physicalGapText = `GAP +${gap.toFixed(3)}`;
+    }
+
+    // 3. Calcolo DELTA PASSO (Ultimo giro tuo vs Ultimo giro suo)
+    let paceDeltaText = '';
+    let myLastTimeRaw = myDriver.lasttime || myDriver.lsTm;
+    let myMs = parseTimeToMs(formatLapTime(myLastTimeRaw));
+    let theirMs = parseTimeToMs(theirLastLap);
+    
+    if (myMs > 0 && theirMs > 0) {
+      let diffMs = theirMs - myMs;
+      let sign = diffMs > 0 ? '+' : '';
+      let color = diffMs > 0 ? '#22c55e' : '#ef4444'; // Verde = Lui più lento, Rosso = Lui più veloce
+      paceDeltaText = `<span style="color: ${color};">Δ ${sign}${(diffMs/1000).toFixed(3)}</span>`;
+    }
+
+    gapHtml = `
+      <span style="font-size: 1.1rem; color: #ffcc00; margin-top: 4px; font-weight: bold;">${physicalGapText}</span>
+      <span style="font-size: 1.1rem; font-weight: bold;">${paceDeltaText}</span>
+    `;
+  }
+
+  // Costruisce la colonna HTML per il pilota avversario
+  return `
+    <span class="rival-num">${nameStr}</span>
+    <span style="font-size: 1.4rem; color: #ccc;">⏱ ${theirLastLap}</span>
+    ${gapHtml}
+  `;
 }
 
 function updateDashboard(driversList) {
@@ -265,7 +325,6 @@ function updateDashboard(driversList) {
   const myDriver = driversList.find(d => String(getDriverId(d)) === String(selectedDriverId));
 
   if (myDriver) {
-    // Aggiorna i giri del pilota nel banner unificato
     myDriverLaps = myDriver.laps || '-';
     updateBanner();
 
@@ -277,20 +336,22 @@ function updateDashboard(driversList) {
     const myNum = myDriver.raceno || myDriver.no || '';
     document.getElementById('myDriverNum').innerText = myNum ? `#${myNum}` : 'ME';
 
+    // Pilota Avanti (Gli passiamo anche i tuoi dati per poter fare la differenza matematica)
     let stringAhead = '--';
     if (myPos > 1) {
       const driverAhead = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos - 1);
-      stringAhead = driverAhead ? formatRivalInfo(driverAhead) : '--';
+      stringAhead = driverAhead ? formatRivalInfo(driverAhead, myDriver) : '--';
     } else if (myPos === 1) {
-      stringAhead = '<span class="rival-num" style="color:#ffcc00">LEADER</span><span>🥇</span>';
+      stringAhead = '<span class="rival-num" style="color:#ffcc00">LEADER</span><span style="font-size: 1.8rem;">🥇</span>';
     }
     document.getElementById('driverAhead').innerHTML = stringAhead;
 
+    // Pilota Dietro (Stessa cosa qui)
     let stringBehind = '--';
     const driverBehind = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos + 1);
     
     if (driverBehind) {
-      stringBehind = formatRivalInfo(driverBehind);
+      stringBehind = formatRivalInfo(driverBehind, myDriver);
     } else if (myPos > 0 && driversList.length > 0) {
       stringBehind = '<span class="rival-num" style="color:#888">CLEAR</span>';
     }
