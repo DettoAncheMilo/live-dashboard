@@ -3,9 +3,9 @@ let currentRaceId = localStorage.getItem('pit_race_id') || null;
 let ws = null; 
 let lastKnownDrivers = []; 
 
-let localRaceSeconds = 0;
-let clockInterval = null;
-let currentRaceData = null;
+// Variabili per il Banner unificato
+let sessionTimeLeft = "--:--";
+let myDriverLaps = "-";
 let activeEngine = 'time2race';
 
 if ('wakeLock' in navigator) {
@@ -44,22 +44,11 @@ function formatLapTime(timeStr) {
   return formatted;
 }
 
-function timeStringToSeconds(str) {
-  if (!str) return 0;
-  const parts = str.split(':');
-  if (parts.length < 3) return 0;
-  return (+parts[0]) * 3600 + (+parts[1]) * 60 + (+parts[2]);
-}
-
-function secondsToTimeString(totalSeconds) {
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = totalSeconds % 60;
-  if (h > 0) {
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  } else {
-    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  }
+// Funzione che aggiorna il banner in alto
+function updateBanner() {
+  const statusBox = document.getElementById('sessionStatus');
+  if (!statusBox) return;
+  statusBox.innerHTML = `⏱️ TIME TO GO: <span style="color: #22c55e;">${sessionTimeLeft}</span> &nbsp;|&nbsp; 🔄 LAPS: <span style="color: #3b82f6;">${myDriverLaps}</span>`;
 }
 
 function loadNewRace() {
@@ -92,13 +81,11 @@ function loadNewRace() {
 
 function resetDashboard() {
   setButtonState('default');
+  sessionTimeLeft = "--:--";
+  myDriverLaps = "-";
   document.getElementById('sessionStatus').innerHTML = '⏱️ Waiting for connection...';
   document.getElementById('driverSelect').innerHTML = '<option value="">Select Rider...</option>';
   lastKnownDrivers = [];
-  localRaceSeconds = 0;
-  currentRaceData = null;
-  if(clockInterval) clearInterval(clockInterval);
-  clockInterval = null;
 }
 
 function changeDriver() {
@@ -116,6 +103,9 @@ document.addEventListener('change', function(event) {
   }
 });
 
+// ==========================================
+// 1. MOTORE TIME2RACE
+// ==========================================
 function connectTime2Race() {
   if (!currentRaceId || activeEngine !== 'time2race') return;
   if (ws) ws.close();
@@ -123,16 +113,20 @@ function connectTime2Race() {
   const wsUrl = `wss://api-stg.mk.time2race.it/live/${currentRaceId}/ranking/`;
   ws = new WebSocket(wsUrl);
 
-  ws.onopen = function() {
-    setButtonState('connected');
-  };
+  ws.onopen = function() { setButtonState('connected'); };
 
   ws.onmessage = function(event) {
     if (event.data === 'ping' || event.data === 'pong') return;
     try {
       const payload = JSON.parse(event.data);
       const raceInfo = payload.race || (payload.data ? payload.data.race : null);
-      if (raceInfo) updateSessionInfo(raceInfo);
+      
+      if (raceInfo) {
+        // Cerca il tempo rimanente o usa quello trascorso
+        sessionTimeLeft = raceInfo.remaining || raceInfo.timeremaining || raceInfo.time_left || raceInfo.racetime || "--:--";
+        if (raceInfo.endrace) sessionTimeLeft = "ENDED";
+        updateBanner();
+      }
 
       let driversList = payload.drivers || (payload.data ? payload.data.drivers : null);
       if (driversList && driversList.length > 0) {
@@ -145,6 +139,9 @@ function connectTime2Race() {
   ws.onclose = function() { setTimeout(connectTime2Race, 3000); };
 }
 
+// ==========================================
+// 2. MOTORE MYLAPS
+// ==========================================
 async function connectMylaps(sessionId) {
   if (!currentRaceId || activeEngine !== 'mylaps') return;
   if (ws) ws.close();
@@ -185,22 +182,37 @@ async function connectMylaps(sessionId) {
         if(msg) {
           try {
             const payload = JSON.parse(msg);
-            if(payload.type === 1 && payload.arguments && payload.arguments[0] && payload.arguments[0].results) {
-               const rawDrivers = payload.arguments[0].results;
-               const mappedDrivers = rawDrivers.map(d => ({
-                 id: d.id,
-                 raceno: d.no,
-                 fullname: d.nam,
-                 position: d.pos,
-                 lasttime: d.lsTm,
-                 besttime: d.btTm,
-                 difference: d.df,
-                 laps: d.laps || d.lp || '-' 
-               }));
+            if(payload.type === 1 && payload.arguments && payload.arguments[0]) {
+               const arg = payload.arguments[0];
+
+               // SPIA SEGRETA: ci stampa nella console TUTTO quello che manda Mylaps
+               console.log("🕵️ DATI MYLAPS GLOBALI:", arg);
+
+               // CATTURA DATI SESSIONE GLOBALE (Time to Go)
+               if (arg.timeRemaining) sessionTimeLeft = arg.timeRemaining;
+               else if (arg.timeToFinish) sessionTimeLeft = arg.timeToFinish;
+               else if (arg.session && arg.session.timeRemaining) sessionTimeLeft = arg.session.timeRemaining;
                
-               lastKnownDrivers = mappedDrivers;
-               populateDriverDropdown(mappedDrivers);
-               updateDashboard(mappedDrivers);
+               updateBanner();
+
+               // CATTURA PILOTI E GIRI
+               if (arg.results) {
+                 const mappedDrivers = arg.results.map(d => ({
+                   id: d.id,
+                   raceno: d.no,
+                   fullname: d.nam,
+                   position: d.pos,
+                   lasttime: d.lsTm,
+                   besttime: d.btTm,
+                   difference: d.df,
+                   // Nel 99% dei casi in Mylaps i giri si chiamano 'l'
+                   laps: d.l || d.lap || d.laps || d.lp || '-' 
+                 }));
+                 
+                 lastKnownDrivers = mappedDrivers;
+                 populateDriverDropdown(mappedDrivers);
+                 updateDashboard(mappedDrivers);
+               }
             }
           } catch(e) {}
         }
@@ -214,43 +226,9 @@ async function connectMylaps(sessionId) {
   }
 }
 
-function updateSessionInfo(race) {
-  currentRaceData = race;
-  let serverSeconds = timeStringToSeconds(race.racetime || "00:00:00");
-
-  if (localRaceSeconds === 0 || Math.abs(localRaceSeconds - serverSeconds) > 2) {
-    localRaceSeconds = serverSeconds;
-  }
-  if (!clockInterval) {
-    clockInterval = setInterval(() => {
-      if (currentRaceData && currentRaceData.running !== false && !currentRaceData.endrace) {
-        localRaceSeconds++;
-        renderSessionTimer();
-      }
-    }, 1000);
-  }
-  renderSessionTimer();
-}
-
-function renderSessionTimer() {
-  const statusBox = document.getElementById('sessionStatus');
-  if (!statusBox || !currentRaceData) return;
-
-  if (currentRaceData.endrace) {
-    statusBox.innerHTML = "🏁 <strong style='color: #ef4444;'>SESSION ENDED</strong> 🏁";
-    return;
-  }
-  let timeText = secondsToTimeString(localRaceSeconds);
-  let statusHtml = `⏱️ Race: <span style="color: #22c55e;">${timeText}</span>`;
-  if (currentRaceData.running === false && localRaceSeconds > 0) {
-    statusHtml += ` <span style="color: #eab308; font-size: 0.9em;">(PAUSED)</span>`;
-  }
-  if (currentRaceData.lapstogo > 0) {
-    statusHtml += ` &nbsp;|&nbsp; 🔄 Laps: <span style="color: #3b82f6;">${currentRaceData.lapstogo}</span>`;
-  }
-  statusBox.innerHTML = statusHtml;
-}
-
+// ==========================================
+// GRAFICA E INTERFACCIA
+// ==========================================
 function formatRivalInfo(driver) {
   if (!driver) return '--';
   const num = driver.raceno || driver.no || '';
@@ -264,11 +242,9 @@ function updateDashboard(driversList) {
   const myDriver = driversList.find(d => String(getDriverId(d)) === String(selectedDriverId));
 
   if (myDriver) {
-    
-    if (activeEngine === 'mylaps') {
-      const myLaps = myDriver.laps || '--';
-      document.getElementById('sessionStatus').innerHTML = `⏱️ Session Live &nbsp;|&nbsp; 🔄 Laps: <span style="color: #3b82f6;">${myLaps}</span>`;
-    }
+    // Aggiorna i giri del pilota nel banner
+    myDriverLaps = myDriver.laps || '-';
+    updateBanner();
 
     let myPos = parseInt(myDriver.position || myDriver.pos, 10);
     
