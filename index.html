@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -52,7 +52,7 @@
     <div class="select-row">
       <span style="color:#888; font-size:0.9rem;">LIVE TIMING</span>
       <select id="driverSelect">
-        <option value="">Seleziona Pilota...</option>
+        <option value="">Select Rider...</option>
       </select>
     </div>
   </div>
@@ -60,15 +60,15 @@
   <div id="sessionStatus" class="session-status">⏱️ Waiting for connection...</div>
 
   <div class="grid">
-    <div class="card"><span class="label">Posizione</span><span class="value pos" id="pos">P-</span></div>
-    <div class="card"><span class="label">Distacco Leader</span><span class="value gap" id="gap">+0.0</span></div>
+    <div class="card"><span class="label">Position</span><span class="value pos" id="pos">P-</span></div>
+    <div class="card"><span class="label">Gap to leader</span><span class="value gap" id="gap">+0.0</span></div>
     
     <div class="card-full">
-      <span class="label">Radar Pista</span>
+      <span class="label">TRACK POSITION</span>
       <div class="radar-container">
         
         <div class="radar-item">
-          <span class="radar-title">Dietro</span>
+          <span class="radar-title">Behind</span>
           <span class="value rival" id="driverBehind">--</span>
         </div>
         
@@ -81,7 +81,7 @@
         </div>
 
         <div class="radar-item">
-          <span class="radar-title">Avanti</span>
+          <span class="radar-title">Ahead</span>
           <span class="value rival" id="driverAhead">--</span>
         </div>
         

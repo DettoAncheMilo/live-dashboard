@@ -12,23 +12,22 @@ if ('wakeLock' in navigator) {
   navigator.wakeLock.request('screen').catch(console.error);
 }
 
-// GESTIONE COLORE TASTO CONNESSIONE
 function setButtonState(state) {
   const btn = document.getElementById('loadBtn');
   if (!btn) return;
 
   if (state === 'connected') {
-    btn.style.backgroundColor = '#22c55e'; // Verde
+    btn.style.backgroundColor = '#22c55e'; 
     btn.style.color = '#ffffff';
     btn.innerText = 'ONLINE ✓';
   } else if (state === 'error') {
-    btn.style.backgroundColor = '#ef4444'; // Rosso
+    btn.style.backgroundColor = '#ef4444'; 
     btn.style.color = '#ffffff';
-    btn.innerText = 'ERRORE ⚠️';
+    btn.innerText = 'ERROR ⚠️';
   } else {
-    btn.style.backgroundColor = '#ffcc00'; // Giallo
+    btn.style.backgroundColor = '#ffcc00'; 
     btn.style.color = '#000000';
-    btn.innerText = 'CARICA';
+    btn.innerText = 'LOAD';
   }
 }
 
@@ -84,17 +83,17 @@ function loadNewRace() {
       resetDashboard();
       connectMylaps(currentRaceId);
     } else {
-      alert("Link Mylaps non valido. Assicurati che contenga '/sessions/...'");
+      alert("Invalid Mylaps link. Ensure it contains '/sessions/...'");
     }
   } else {
-    alert("Inserisci un link valido (Time2Race o Mylaps)!");
+    alert("Please insert a valid link (Time2Race or Mylaps)!");
   }
 }
 
 function resetDashboard() {
   setButtonState('default');
-  document.getElementById('sessionStatus').innerHTML = '⏱️ In attesa di connessione...';
-  document.getElementById('driverSelect').innerHTML = '<option value="">Seleziona Pilota...</option>';
+  document.getElementById('sessionStatus').innerHTML = '⏱️ Waiting for connection...';
+  document.getElementById('driverSelect').innerHTML = '<option value="">Select Rider...</option>';
   lastKnownDrivers = [];
   localRaceSeconds = 0;
   currentRaceData = null;
@@ -161,7 +160,7 @@ async function connectMylaps(sessionId) {
     const token = settings.accessToken;
     let endpointUrl = settings.url;
 
-    if(!token || !endpointUrl) throw new Error("Token o URL mancanti nella risposta!");
+    if(!token || !endpointUrl) throw new Error("Token missing!");
 
     endpointUrl = endpointUrl.replace("https://", "wss://");
     const wsUrl = `${endpointUrl}&access_token=${token}`;
@@ -196,7 +195,7 @@ async function connectMylaps(sessionId) {
                  lasttime: d.lsTm,
                  besttime: d.btTm,
                  difference: d.df,
-                 laps: d.laps || d.lp || '-' // Traduttore giri per Mylaps
+                 laps: d.laps || d.lp || '-' 
                }));
                
                lastKnownDrivers = mappedDrivers;
@@ -211,11 +210,10 @@ async function connectMylaps(sessionId) {
 
   } catch (error) {
     setButtonState('error');
-    document.getElementById('sessionStatus').innerHTML = "⚠️ ERRORE DI CONNESSIONE";
+    document.getElementById('sessionStatus').innerHTML = "⚠️ CONNECTION ERROR";
   }
 }
 
-// Gestione Banner per Time2Race (Usa i dati ufficiali di gara)
 function updateSessionInfo(race) {
   currentRaceData = race;
   let serverSeconds = timeStringToSeconds(race.racetime || "00:00:00");
@@ -239,16 +237,16 @@ function renderSessionTimer() {
   if (!statusBox || !currentRaceData) return;
 
   if (currentRaceData.endrace) {
-    statusBox.innerHTML = "🏁 <strong style='color: #ef4444;'>SESSIONE TERMINATA</strong> 🏁";
+    statusBox.innerHTML = "🏁 <strong style='color: #ef4444;'>SESSION ENDED</strong> 🏁";
     return;
   }
   let timeText = secondsToTimeString(localRaceSeconds);
-  let statusHtml = `⏱️ Gara: <span style="color: #22c55e;">${timeText}</span>`;
+  let statusHtml = `⏱️ Race: <span style="color: #22c55e;">${timeText}</span>`;
   if (currentRaceData.running === false && localRaceSeconds > 0) {
-    statusHtml += ` <span style="color: #eab308; font-size: 0.9em;">(PAUSA)</span>`;
+    statusHtml += ` <span style="color: #eab308; font-size: 0.9em;">(PAUSED)</span>`;
   }
   if (currentRaceData.lapstogo > 0) {
-    statusHtml += ` &nbsp;|&nbsp; 🔄 Giri: <span style="color: #3b82f6;">${currentRaceData.lapstogo}</span>`;
+    statusHtml += ` &nbsp;|&nbsp; 🔄 Laps: <span style="color: #3b82f6;">${currentRaceData.lapstogo}</span>`;
   }
   statusBox.innerHTML = statusHtml;
 }
@@ -257,7 +255,7 @@ function formatRivalInfo(driver) {
   if (!driver) return '--';
   const num = driver.raceno || driver.no || '';
   const best = formatLapTime(driver.besttime || driver.btTm);
-  const nameStr = num ? `#${num}` : (driver.fullname || driver.nam || driver.nickname || 'Pilota').substring(0, 8);
+  const nameStr = num ? `#${num}` : (driver.fullname || driver.nam || driver.nickname || 'Rider').substring(0, 8);
   return `<span class="rival-num">${nameStr}</span><span>${best}</span>`;
 }
 
@@ -267,23 +265,19 @@ function updateDashboard(driversList) {
 
   if (myDriver) {
     
-    // Gestione Banner per Mylaps (Mostra i giri personali)
     if (activeEngine === 'mylaps') {
       const myLaps = myDriver.laps || '--';
-      document.getElementById('sessionStatus').innerHTML = `⏱️ Sessione in corso &nbsp;|&nbsp; 🔄 Giri: <span style="color: #3b82f6;">${myLaps}</span>`;
+      document.getElementById('sessionStatus').innerHTML = `⏱️ Session Live &nbsp;|&nbsp; 🔄 Laps: <span style="color: #3b82f6;">${myLaps}</span>`;
     }
 
     let myPos = parseInt(myDriver.position || myDriver.pos, 10);
     
-    // Aggiornamento Box P1 e Gap
     document.getElementById('pos').innerText = `P${myPos || '-'}`;
     document.getElementById('gap').innerText = myDriver.difference || myDriver.df ? `+${myDriver.difference || myDriver.df}` : '+0.000';
 
-    // Aggiornamento Numero Pilota Centrale
     const myNum = myDriver.raceno || myDriver.no || '';
     document.getElementById('myDriverNum').innerText = myNum ? `#${myNum}` : 'ME';
 
-    // Pilota Avanti
     let stringAhead = '--';
     if (myPos > 1) {
       const driverAhead = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos - 1);
@@ -293,14 +287,13 @@ function updateDashboard(driversList) {
     }
     document.getElementById('driverAhead').innerHTML = stringAhead;
 
-    // Pilota Dietro
     let stringBehind = '--';
     const driverBehind = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos + 1);
     
     if (driverBehind) {
       stringBehind = formatRivalInfo(driverBehind);
     } else if (myPos > 0 && driversList.length > 0) {
-      stringBehind = '<span class="rival-num" style="color:#888">NESSUNO</span>';
+      stringBehind = '<span class="rival-num" style="color:#888">CLEAR</span>';
     }
     document.getElementById('driverBehind').innerHTML = stringBehind;
 
@@ -309,19 +302,19 @@ function updateDashboard(driversList) {
     document.getElementById('driverAhead').innerHTML = '--';
     document.getElementById('driverBehind').innerHTML = '--';
     document.getElementById('gap').innerText = '+0.000';
-    document.getElementById('myDriverNum').innerText = '#--';
+    document.getElementById('myDriverNum').innerText = '--';
   }
 }
 
 function populateDriverDropdown(drivers) {
   const select = document.getElementById('driverSelect');
   if (select.options.length <= 1 && drivers.length > 0) {
-    select.innerHTML = '<option value="">Seleziona Pilota...</option>';
+    select.innerHTML = '<option value="">Select Rider...</option>';
     drivers.forEach(d => {
       const opt = document.createElement('option');
       opt.value = getDriverId(d); 
       const num = d.raceno || d.no || '';
-      const name = d.fullname || d.nickname || d.nam || `Pilota ${getDriverId(d)}`;
+      const name = d.fullname || d.nickname || d.nam || `Rider ${getDriverId(d)}`;
       opt.textContent = num ? `#${num} ${name}` : name;
       
       if (String(opt.value) === String(selectedDriverId)) opt.selected = true;
