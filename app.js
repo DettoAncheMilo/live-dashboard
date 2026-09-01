@@ -44,11 +44,29 @@ function formatLapTime(timeStr) {
   return formatted;
 }
 
+function timeStringToSeconds(str) {
+  if (!str) return 0;
+  const parts = str.split(':');
+  if (parts.length < 3) return 0;
+  return (+parts[0]) * 3600 + (+parts[1]) * 60 + (+parts[2]);
+}
+
+function secondsToTimeString(totalSeconds) {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  if (h > 0) {
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  } else {
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+}
+
 // Funzione che aggiorna il banner in alto
 function updateBanner() {
   const statusBox = document.getElementById('sessionStatus');
   if (!statusBox) return;
-  statusBox.innerHTML = `⏱️ TIME TO GO: <span style="color: #22c55e;">${sessionTimeLeft}</span> &nbsp;|&nbsp; 🔄 LAPS: <span style="color: #3b82f6;">${myDriverLaps}</span>`;
+  statusBox.innerHTML = `⏱️ TIME: <span style="color: #22c55e;">${sessionTimeLeft}</span> &nbsp;|&nbsp; 🔄 LAPS: <span style="color: #3b82f6;">${myDriverLaps}</span>`;
 }
 
 function loadNewRace() {
@@ -122,7 +140,6 @@ function connectTime2Race() {
       const raceInfo = payload.race || (payload.data ? payload.data.race : null);
       
       if (raceInfo) {
-        // Cerca il tempo rimanente o usa quello trascorso
         sessionTimeLeft = raceInfo.remaining || raceInfo.timeremaining || raceInfo.time_left || raceInfo.racetime || "--:--";
         if (raceInfo.endrace) sessionTimeLeft = "ENDED";
         updateBanner();
@@ -185,29 +202,35 @@ async function connectMylaps(sessionId) {
             if(payload.type === 1 && payload.arguments && payload.arguments[0]) {
                const arg = payload.arguments[0];
 
-               // SPIA SEGRETA: ci stampa nella console TUTTO quello che manda Mylaps
-               console.log("🕵️ DATI MYLAPS GLOBALI:", arg);
-
-               // CATTURA DATI SESSIONE GLOBALE (Time to Go)
-               if (arg.timeRemaining) sessionTimeLeft = arg.timeRemaining;
+               // CATTURA IL CRONOMETRO DAI PACCHETTI SEPARATI (tss = Time Session Status)
+               if (arg.tss) sessionTimeLeft = arg.tss;
+               else if (arg.timeRemaining) sessionTimeLeft = arg.timeRemaining;
                else if (arg.timeToFinish) sessionTimeLeft = arg.timeToFinish;
-               else if (arg.session && arg.session.timeRemaining) sessionTimeLeft = arg.session.timeRemaining;
                
                updateBanner();
 
-               // CATTURA PILOTI E GIRI
+               // CATTURA LA CLASSIFICA E I GIRI
                if (arg.results) {
-                 const mappedDrivers = arg.results.map(d => ({
-                   id: d.id,
-                   raceno: d.no,
-                   fullname: d.nam,
-                   position: d.pos,
-                   lasttime: d.lsTm,
-                   besttime: d.btTm,
-                   difference: d.df,
-                   // Nel 99% dei casi in Mylaps i giri si chiamano 'l'
-                   laps: d.l || d.lap || d.laps || d.lp || '-' 
-                 }));
+                 const mappedDrivers = arg.results.map(d => {
+                   
+                   // Sistema infallibile per trovare i giri in Mylaps
+                   let lapsCount = '-';
+                   if ('lc' in d) lapsCount = d.lc;
+                   else if ('l' in d) lapsCount = d.l;
+                   else if ('laps' in d) lapsCount = d.laps;
+                   else if ('lp' in d) lapsCount = d.lp;
+
+                   return {
+                     id: d.id,
+                     raceno: d.no,
+                     fullname: d.nam,
+                     position: d.pos,
+                     lasttime: d.lsTm,
+                     besttime: d.btTm,
+                     difference: d.df,
+                     laps: lapsCount
+                   };
+                 });
                  
                  lastKnownDrivers = mappedDrivers;
                  populateDriverDropdown(mappedDrivers);
@@ -242,7 +265,7 @@ function updateDashboard(driversList) {
   const myDriver = driversList.find(d => String(getDriverId(d)) === String(selectedDriverId));
 
   if (myDriver) {
-    // Aggiorna i giri del pilota nel banner
+    // Aggiorna i giri del pilota nel banner unificato
     myDriverLaps = myDriver.laps || '-';
     updateBanner();
 
