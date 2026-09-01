@@ -12,6 +12,26 @@ if ('wakeLock' in navigator) {
   navigator.wakeLock.request('screen').catch(console.error);
 }
 
+// GESTIONE COLORE TASTO CONNESSIONE
+function setButtonState(state) {
+  const btn = document.getElementById('loadBtn');
+  if (!btn) return;
+
+  if (state === 'connected') {
+    btn.style.backgroundColor = '#22c55e'; // Verde
+    btn.style.color = '#ffffff';
+    btn.innerText = 'ONLINE ✓';
+  } else if (state === 'error') {
+    btn.style.backgroundColor = '#ef4444'; // Rosso
+    btn.style.color = '#ffffff';
+    btn.innerText = 'ERRORE ⚠️';
+  } else {
+    btn.style.backgroundColor = '#ffcc00'; // Giallo
+    btn.style.color = '#000000';
+    btn.innerText = 'CARICA';
+  }
+}
+
 function getDriverId(d) {
   return d.id || d.user_id || d.raceno || d.fullname || d.no || d.nam;
 }
@@ -72,6 +92,8 @@ function loadNewRace() {
 }
 
 function resetDashboard() {
+  setButtonState('default');
+  document.getElementById('sessionStatus').innerHTML = '⏱️ In attesa di connessione...';
   document.getElementById('driverSelect').innerHTML = '<option value="">Seleziona Pilota...</option>';
   lastKnownDrivers = [];
   localRaceSeconds = 0;
@@ -101,6 +123,10 @@ function connectTime2Race() {
 
   const wsUrl = `wss://api-stg.mk.time2race.it/live/${currentRaceId}/ranking/`;
   ws = new WebSocket(wsUrl);
+
+  ws.onopen = function() {
+    setButtonState('connected');
+  };
 
   ws.onmessage = function(event) {
     if (event.data === 'ping' || event.data === 'pong') return;
@@ -144,6 +170,7 @@ async function connectMylaps(sessionId) {
     const END_CHAR = String.fromCharCode(0x1E); 
 
     ws.onopen = function() {
+      setButtonState('connected');
       ws.send('{"protocol":"json","version":1}' + END_CHAR);
       ws.send(JSON.stringify({
         arguments: [`session-${sessionId}`],
@@ -168,14 +195,13 @@ async function connectMylaps(sessionId) {
                  position: d.pos,
                  lasttime: d.lsTm,
                  besttime: d.btTm,
-                 difference: d.df
+                 difference: d.df,
+                 laps: d.laps || d.lp || '-' // Traduttore giri per Mylaps
                }));
                
                lastKnownDrivers = mappedDrivers;
                populateDriverDropdown(mappedDrivers);
                updateDashboard(mappedDrivers);
-               
-               document.getElementById('sessionStatus').innerHTML = "🏁 <strong style='color: #22c55e;'>MYLAPS LIVE TIMING ATTIVO</strong> 🏁";
             }
           } catch(e) {}
         }
@@ -184,10 +210,12 @@ async function connectMylaps(sessionId) {
     ws.onclose = function() { setTimeout(() => connectMylaps(sessionId), 3000); };
 
   } catch (error) {
-    document.getElementById('sessionStatus').innerHTML = "⚠️ ERRORE DI CONNESSIONE MYLAPS";
+    setButtonState('error');
+    document.getElementById('sessionStatus').innerHTML = "⚠️ ERRORE DI CONNESSIONE";
   }
 }
 
+// Gestione Banner per Time2Race (Usa i dati ufficiali di gara)
 function updateSessionInfo(race) {
   currentRaceData = race;
   let serverSeconds = timeStringToSeconds(race.racetime || "00:00:00");
@@ -238,6 +266,13 @@ function updateDashboard(driversList) {
   const myDriver = driversList.find(d => String(getDriverId(d)) === String(selectedDriverId));
 
   if (myDriver) {
+    
+    // Gestione Banner per Mylaps (Mostra i giri personali)
+    if (activeEngine === 'mylaps') {
+      const myLaps = myDriver.laps || '--';
+      document.getElementById('sessionStatus').innerHTML = `⏱️ Sessione in corso &nbsp;|&nbsp; 🔄 Giri: <span style="color: #3b82f6;">${myLaps}</span>`;
+    }
+
     let myPos = parseInt(myDriver.position || myDriver.pos, 10);
     
     // Aggiornamento Box P1 e Gap
