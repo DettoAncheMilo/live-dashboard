@@ -3,7 +3,6 @@ let currentRaceId = localStorage.getItem('pit_race_id') || null;
 let ws = null; 
 let lastKnownDrivers = []; 
 
-// Variabili per il Banner unificato
 let sessionTimeLeft = "--:--";
 let myDriverLaps = "-";
 let activeEngine = 'time2race';
@@ -20,6 +19,10 @@ function setButtonState(state) {
     btn.style.backgroundColor = '#22c55e'; 
     btn.style.color = '#ffffff';
     btn.innerText = 'ONLINE ✓';
+  } else if (state === 'connecting') {
+    btn.style.backgroundColor = '#3b82f6'; 
+    btn.style.color = '#ffffff';
+    btn.innerText = 'CONNECTING ⏳';
   } else if (state === 'error') {
     btn.style.backgroundColor = '#ef4444'; 
     btn.style.color = '#ffffff';
@@ -30,6 +33,12 @@ function setButtonState(state) {
     btn.innerText = 'LOAD';
   }
 }
+
+document.addEventListener('input', function(event) {
+  if (event.target && event.target.id === 'raceLinkInput') {
+    setButtonState('default');
+  }
+});
 
 function getDriverId(d) {
   return d.id || d.user_id || d.raceno || d.fullname || d.no || d.nam;
@@ -44,7 +53,6 @@ function formatLapTime(timeStr) {
   return formatted;
 }
 
-// Funzione matematica per convertire un tempo in millisecondi
 function parseTimeToMs(str) {
   if (!str || str.includes('-') || str === '--:--.--') return 0;
   let parts = str.split(':');
@@ -79,7 +87,6 @@ function secondsToTimeString(totalSeconds) {
   }
 }
 
-// Funzione che aggiorna il banner in alto
 function updateBanner() {
   const statusBox = document.getElementById('sessionStatus');
   if (!statusBox) return;
@@ -88,6 +95,9 @@ function updateBanner() {
 
 function loadNewRace() {
   const inputUrl = document.getElementById('raceLinkInput').value;
+  if (!inputUrl) return;
+
+  setButtonState('connecting');
   
   if (inputUrl.includes('time2race.it')) {
     const match = inputUrl.match(/race\/(\d+)/); 
@@ -107,15 +117,16 @@ function loadNewRace() {
       resetDashboard();
       connectMylaps(currentRaceId);
     } else {
+      setButtonState('error');
       alert("Invalid Mylaps link. Ensure it contains '/sessions/...'");
     }
   } else {
+    setButtonState('error');
     alert("Please insert a valid link (Time2Race or Mylaps)!");
   }
 }
 
 function resetDashboard() {
-  setButtonState('default');
   sessionTimeLeft = "--:--";
   myDriverLaps = "-";
   document.getElementById('sessionStatus').innerHTML = '⏱️ Waiting for connection...';
@@ -134,6 +145,7 @@ function changeDriver() {
   localStorage.setItem('pit_driver_id', newId);
   if (lastKnownDrivers.length > 0) updateDashboard(lastKnownDrivers);
   
+  // INVIA I PARAMETRI ALLA LILYGO ALLA SELEZIONE DEL PILOTA
   sendConfigToLilyGO();
 }
 
@@ -143,9 +155,6 @@ document.addEventListener('change', function(event) {
   }
 });
 
-// ==========================================
-// 1. MOTORE TIME2RACE
-// ==========================================
 function connectTime2Race() {
   if (!currentRaceId || activeEngine !== 'time2race') return;
   if (ws) ws.close();
@@ -153,7 +162,7 @@ function connectTime2Race() {
   const wsUrl = `wss://api-stg.mk.time2race.it/live/${currentRaceId}/ranking/`;
   ws = new WebSocket(wsUrl);
 
-  ws.onopen = function() { setButtonState('connected'); };
+  ws.onopen = function() { setButtonState('connected'); }; 
 
   ws.onmessage = function(event) {
     if (event.data === 'ping' || event.data === 'pong') return;
@@ -175,12 +184,11 @@ function connectTime2Race() {
       }
     } catch (err) {}
   };
+  
+  ws.onerror = function() { setButtonState('error'); };
   ws.onclose = function() { setTimeout(connectTime2Race, 3000); };
 }
 
-// ==========================================
-// 2. MOTORE MYLAPS
-// ==========================================
 async function connectMylaps(sessionId) {
   if (!currentRaceId || activeEngine !== 'mylaps') return;
   if (ws) ws.close();
@@ -205,7 +213,7 @@ async function connectMylaps(sessionId) {
     const END_CHAR = String.fromCharCode(0x1E); 
 
     ws.onopen = function() {
-      setButtonState('connected');
+      setButtonState('connected'); 
       ws.send('{"protocol":"json","version":1}' + END_CHAR);
       ws.send(JSON.stringify({
         arguments: [`session-${sessionId}`],
@@ -259,6 +267,8 @@ async function connectMylaps(sessionId) {
         }
       });
     };
+    
+    ws.onerror = function() { setButtonState('error'); };
     ws.onclose = function() { setTimeout(() => connectMylaps(sessionId), 3000); };
 
   } catch (error) {
@@ -267,9 +277,6 @@ async function connectMylaps(sessionId) {
   }
 }
 
-// ==========================================
-// GRAFICA E INTERFACCIA: RADAR AVANZATO
-// ==========================================
 function formatRivalInfo(driver, myDriver) {
   if (!driver) return '--';
   const num = driver.raceno || driver.no || '';
@@ -434,7 +441,6 @@ function connectMQTT() {
   });
 }
 
-// Invia Dati Corsa
 function sendConfigToLilyGO() {
   if (!currentRaceId || !selectedDriverId || !isMqttConnected) return;
   
@@ -454,7 +460,6 @@ function sendConfigToLilyGO() {
   } catch(e) {}
 }
 
-// INVIA COMANDI PIT WALL (PUSH, SLOW, BOX)
 window.sendPitCommand = function(commandText, colorCode) {
   if (!isMqttConnected) {
     alert("⚠️ Connessione radio non attiva. Attendi...");
@@ -467,14 +472,13 @@ window.sendPitCommand = function(commandText, colorCode) {
   });
 
   const message = new Paho.MQTT.Message(payload);
-  message.destinationName = "milo/pitboard/command"; // Nuovo canale specifico per i comandi[cite: 2]
-  message.retained = false; // Non viene salvato, è un comando istantaneo
+  message.destinationName = "milo/pitboard/command";
+  message.retained = false; 
   
   try {
     mqttClient.send(message);
     console.log("🚩 Comando PitWall Inviato:", payload);
     
-    // Piccolo feedback visivo (fa brillare i bordi dello schermo di bianco per 1 secondo)
     document.body.style.border = "4px solid white";
     setTimeout(() => { document.body.style.border = "none"; }, 500);
 
