@@ -235,17 +235,13 @@ async function connectMylaps(sessionId) {
                
                updateBanner();
 
-               if (arg.results) {
-                 // SPIA: Stampa in console i dati grezzi del primo pilota in classifica
-                 if (arg.results.length > 0) {
-                    console.log("🔎 SPIA MYLAPS - Apri questa freccina per vedere le proprietà:", arg.results[0]);
-                 }
-
+              if (arg.results) {
                  const mappedDrivers = arg.results.map(d => {
+                   
                    let lapsCount = '-';
-                   // La nostra rete a strascico precedente...
                    if (d.l !== undefined) lapsCount = d.l;
                    else if (d.lc !== undefined) lapsCount = d.lc;
+                   else if (d.ls !== undefined) lapsCount = d.ls; // <--- IL COLPEVOLE!
                    else if (d.lap !== undefined) lapsCount = d.lap;
                    else if (d.laps !== undefined) lapsCount = d.laps;
                    else if (d.Laps !== undefined) lapsCount = d.Laps;
