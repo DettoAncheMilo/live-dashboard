@@ -240,11 +240,17 @@ async function connectMylaps(sessionId) {
 
                if (arg.results) {
                  const mappedDrivers = arg.results.map(d => {
+                   
                    let lapsCount = '-';
-                   if ('lc' in d) lapsCount = d.lc;
-                   else if ('l' in d) lapsCount = d.l;
-                   else if ('laps' in d) lapsCount = d.laps;
-                   else if ('lp' in d) lapsCount = d.lp;
+                   if (d.l !== undefined) lapsCount = d.l;
+                   else if (d.lc !== undefined) lapsCount = d.lc;
+                   else if (d.ls !== undefined) lapsCount = d.ls; // <--- IL COLPEVOLE!
+                   else if (d.lap !== undefined) lapsCount = d.lap;
+                   else if (d.laps !== undefined) lapsCount = d.laps;
+                   else if (d.Laps !== undefined) lapsCount = d.Laps;
+                   else if (d.Lap !== undefined) lapsCount = d.Lap;
+                   else if (d.lapCount !== undefined) lapsCount = d.lapCount;
+                   else if (d.c !== undefined) lapsCount = d.c;
 
                    return {
                      id: d.id,
