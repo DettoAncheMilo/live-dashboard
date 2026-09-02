@@ -144,9 +144,6 @@ function changeDriver() {
   selectedDriverId = newId;
   localStorage.setItem('pit_driver_id', newId);
   if (lastKnownDrivers.length > 0) updateDashboard(lastKnownDrivers);
-  
-  // INVIA I PARAMETRI ALLA LILYGO ALLA SELEZIONE DEL PILOTA
-  sendConfigToLilyGO();
 }
 
 document.addEventListener('change', function(event) {
@@ -162,7 +159,7 @@ function connectTime2Race() {
   const wsUrl = `wss://api-stg.mk.time2race.it/live/${currentRaceId}/ranking/`;
   ws = new WebSocket(wsUrl);
 
-  ws.onopen = function() { setButtonState('connected'); }; 
+  ws.onopen = function() { setButtonState('connected'); };
 
   ws.onmessage = function(event) {
     if (event.data === 'ping' || event.data === 'pong') return;
@@ -213,7 +210,7 @@ async function connectMylaps(sessionId) {
     const END_CHAR = String.fromCharCode(0x1E); 
 
     ws.onopen = function() {
-      setButtonState('connected'); 
+      setButtonState('connected');
       ws.send('{"protocol":"json","version":1}' + END_CHAR);
       ws.send(JSON.stringify({
         arguments: [`session-${sessionId}`],
@@ -239,12 +236,22 @@ async function connectMylaps(sessionId) {
                updateBanner();
 
                if (arg.results) {
+                 // SPIA: Stampa in console i dati grezzi del primo pilota in classifica
+                 if (arg.results.length > 0) {
+                    console.log("🔎 SPIA MYLAPS - Apri questa freccina per vedere le proprietà:", arg.results[0]);
+                 }
+
                  const mappedDrivers = arg.results.map(d => {
                    let lapsCount = '-';
-                   if ('lc' in d) lapsCount = d.lc;
-                   else if ('l' in d) lapsCount = d.l;
-                   else if ('laps' in d) lapsCount = d.laps;
-                   else if ('lp' in d) lapsCount = d.lp;
+                   // La nostra rete a strascico precedente...
+                   if (d.l !== undefined) lapsCount = d.l;
+                   else if (d.lc !== undefined) lapsCount = d.lc;
+                   else if (d.lap !== undefined) lapsCount = d.lap;
+                   else if (d.laps !== undefined) lapsCount = d.laps;
+                   else if (d.Laps !== undefined) lapsCount = d.Laps;
+                   else if (d.Lap !== undefined) lapsCount = d.Lap;
+                   else if (d.lapCount !== undefined) lapsCount = d.lapCount;
+                   else if (d.c !== undefined) lapsCount = d.c;
 
                    return {
                      id: d.id,
@@ -417,74 +424,3 @@ if (currentRaceId) {
     connectTime2Race();
   }
 }
-
-// ==========================================
-// TRASMETTITORE IOT (MQTT per LilyGO)
-// ==========================================
-const mqttClient = new Paho.MQTT.Client("broker.hivemq.com", 8884, "PitWall_Web_" + parseInt(Math.random() * 1000));
-let isMqttConnected = false;
-
-mqttClient.onConnectionLost = function(responseObject) {
-  console.log("Antenna MQTT Disconnessa:", responseObject.errorMessage);
-  isMqttConnected = false;
-  setTimeout(connectMQTT, 5000); 
-};
-
-function connectMQTT() {
-  mqttClient.connect({
-    useSSL: true,
-    onSuccess: function() {
-      console.log("✅ Connesso al Broker MQTT! Pronto a trasmettere alla moto.");
-      isMqttConnected = true;
-      sendConfigToLilyGO(); 
-    }
-  });
-}
-
-function sendConfigToLilyGO() {
-  if (!currentRaceId || !selectedDriverId || !isMqttConnected) return;
-  
-  const payload = JSON.stringify({
-    engine: activeEngine,
-    raceId: currentRaceId,
-    driverId: selectedDriverId
-  });
-
-  const message = new Paho.MQTT.Message(payload);
-  message.destinationName = "milo/pitboard/config"; 
-  message.retained = true; 
-  
-  try {
-    mqttClient.send(message);
-    console.log("📡 Parametri inviati alla LilyGO:", payload);
-  } catch(e) {}
-}
-
-window.sendPitCommand = function(commandText, colorCode) {
-  if (!isMqttConnected) {
-    alert("⚠️ Connessione radio non attiva. Attendi...");
-    return;
-  }
-
-  const payload = JSON.stringify({
-    cmd: commandText,
-    color: colorCode
-  });
-
-  const message = new Paho.MQTT.Message(payload);
-  message.destinationName = "milo/pitboard/command";
-  message.retained = false; 
-  
-  try {
-    mqttClient.send(message);
-    console.log("🚩 Comando PitWall Inviato:", payload);
-    
-    document.body.style.border = "4px solid white";
-    setTimeout(() => { document.body.style.border = "none"; }, 500);
-
-  } catch(e) {
-    console.log("Errore invio comando", e);
-  }
-};
-
-connectMQTT();
