@@ -162,9 +162,13 @@ function resetDashboard() {
   
   selectedDriverId = null;
   localStorage.removeItem('pit_driver_id');
-
-  // Forza l'azzeramento totale della grafica (scrive P-, Gap 0, ecc.)
-  updateDashboard([]);
+  
+  // Forza l'azzeramento totale e manuale dei box grafici
+  document.getElementById('pos').innerText = 'P-';
+  document.getElementById('driverAhead').innerHTML = '--';
+  document.getElementById('driverBehind').innerHTML = '--';
+  document.getElementById('gap').innerText = '+0.000';
+  document.getElementById('myDriverNum').innerText = '--';
   
   // Riporta il bottone giallo su LOAD e nasconde lo STOP
   setButtonState('default');
