@@ -157,7 +157,13 @@ document.addEventListener('change', function(event) {
 
 function connectTime2Race() {
   if (!currentRaceId || activeEngine !== 'time2race') return;
-  if (ws) ws.close();
+  
+  // NUOVA CHIUSURA SILENZIOSA
+  if (ws) {
+    ws.onclose = null; 
+    ws.onerror = null; 
+    ws.close();
+  }
 
   const wsUrl = `wss://api-stg.mk.time2race.it/live/${currentRaceId}/ranking/`;
   ws = new WebSocket(wsUrl);
@@ -191,7 +197,13 @@ function connectTime2Race() {
 
 async function connectMylaps(sessionId) {
   if (!currentRaceId || activeEngine !== 'mylaps') return;
-  if (ws) ws.close();
+  
+  // NUOVA CHIUSURA SILENZIOSA
+  if (ws) {
+    ws.onclose = null; 
+    ws.onerror = null; 
+    ws.close();
+  }
 
   try {
     const proxyUrl = 'https://mylaps-proxy.nico-mila91.workers.dev/?url=';
