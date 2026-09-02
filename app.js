@@ -13,24 +13,29 @@ if ('wakeLock' in navigator) {
 
 function setButtonState(state) {
   const btn = document.getElementById('loadBtn');
+  const stopBtn = document.getElementById('stopBtn'); // Cerca il tasto STOP
   if (!btn) return;
 
   if (state === 'connected') {
     btn.style.backgroundColor = '#22c55e'; 
     btn.style.color = '#ffffff';
     btn.innerText = 'ONLINE ✓';
+    if (stopBtn) stopBtn.style.display = 'block'; // Fai apparire lo STOP
   } else if (state === 'connecting') {
     btn.style.backgroundColor = '#3b82f6'; 
     btn.style.color = '#ffffff';
     btn.innerText = 'CONNECTING ⏳';
+    if (stopBtn) stopBtn.style.display = 'none'; // Nascondi lo STOP
   } else if (state === 'error') {
     btn.style.backgroundColor = '#ef4444'; 
     btn.style.color = '#ffffff';
     btn.innerText = 'ERROR ⚠️';
+    if (stopBtn) stopBtn.style.display = 'none'; // Nascondi lo STOP
   } else {
     btn.style.backgroundColor = '#ffcc00'; 
     btn.style.color = '#000000';
     btn.innerText = 'LOAD';
+    if (stopBtn) stopBtn.style.display = 'none'; // Nascondi lo STOP
   }
 }
 
@@ -126,6 +131,28 @@ function loadNewRace() {
   }
 }
 
+// Funzione per fermare la sessione (Kill Switch)
+function stopSession() {
+  // 1. Uccide la connessione radio in modo silenzioso
+  if (ws) {
+    ws.onclose = null; 
+    ws.onerror = null; 
+    ws.close();
+    ws = null;
+  }
+  
+  // 2. Svuota la memoria dei vecchi link e piloti
+  currentRaceId = null;
+  activeEngine = null;
+  localStorage.removeItem('pit_race_id');
+  
+  // 3. Svuota la barra di testo
+  document.getElementById('raceLinkInput').value = '';
+  
+  // 4. Lancia il reset dell'interfaccia
+  resetDashboard();
+}
+
 function resetDashboard() {
   sessionTimeLeft = "--:--";
   myDriverLaps = "-";
@@ -135,6 +162,12 @@ function resetDashboard() {
   
   selectedDriverId = null;
   localStorage.removeItem('pit_driver_id');
+
+  // Forza l'azzeramento totale della grafica (scrive P-, Gap 0, ecc.)
+  updateDashboard([]);
+  
+  // Riporta il bottone giallo su LOAD e nasconde lo STOP
+  setButtonState('default');
 }
 
 function changeDriver() {
@@ -256,7 +289,7 @@ async function connectMylaps(sessionId) {
                    let lapsCount = '-';
                    if (d.l !== undefined) lapsCount = d.l;
                    else if (d.lc !== undefined) lapsCount = d.lc;
-                   else if (d.ls !== undefined) lapsCount = d.ls; // <--- IL COLPEVOLE!
+                   else if (d.ls !== undefined) lapsCount = d.ls; // IL COLPEVOLE!
                    else if (d.lap !== undefined) lapsCount = d.lap;
                    else if (d.laps !== undefined) lapsCount = d.laps;
                    else if (d.Laps !== undefined) lapsCount = d.Laps;
