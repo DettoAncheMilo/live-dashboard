@@ -229,9 +229,12 @@ async function connectMylaps(sessionId) {
             if(payload.type === 1 && payload.arguments && payload.arguments[0]) {
                const arg = payload.arguments[0];
 
-               if (arg.tss) sessionTimeLeft = arg.tss;
-               else if (arg.timeRemaining) sessionTimeLeft = arg.timeRemaining;
+               // Priorità assoluta al tempo rimanente (Countdown)
+               if (arg.timeRemaining) sessionTimeLeft = arg.timeRemaining;
                else if (arg.timeToFinish) sessionTimeLeft = arg.timeToFinish;
+               else if (arg.ttg) sessionTimeLeft = arg.ttg; 
+               else if (arg.rT) sessionTimeLeft = arg.rT; 
+               else if (arg.tss) sessionTimeLeft = arg.tss; // Spostato in fondo come ultima spiaggia
                
                updateBanner();
 
