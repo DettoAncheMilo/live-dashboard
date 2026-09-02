@@ -163,12 +163,8 @@ function resetDashboard() {
   selectedDriverId = null;
   localStorage.removeItem('pit_driver_id');
   
-  // Forza l'azzeramento totale e manuale dei box grafici
-  document.getElementById('pos').innerText = 'P-';
-  document.getElementById('driverAhead').innerHTML = '--';
-  document.getElementById('driverBehind').innerHTML = '--';
-  document.getElementById('gap').innerText = '+0.000';
-  document.getElementById('myDriverNum').innerText = '--';
+  // Chiama il motore grafico per forzare l'azzeramento
+  updateDashboard([]);
   
   // Riporta il bottone giallo su LOAD e nasconde lo STOP
   setButtonState('default');
@@ -386,7 +382,16 @@ function formatRivalInfo(driver, myDriver) {
 }
 
 function updateDashboard(driversList) {
-  if (!selectedDriverId) return;
+  // NUOVO BLOCCO DI SICUREZZA: Se non c'è il pilota (es. se hai premuto STOP), svuota tutto lo schermo e fermati.
+  if (!selectedDriverId) {
+    document.getElementById('pos').innerText = 'P-';
+    document.getElementById('driverAhead').innerHTML = '--';
+    document.getElementById('driverBehind').innerHTML = '--';
+    document.getElementById('gap').innerText = '--';
+    document.getElementById('myDriverNum').innerText = '--';
+    return;
+  }
+
   const myDriver = driversList.find(d => String(getDriverId(d)) === String(selectedDriverId));
 
   if (myDriver) {
@@ -437,10 +442,10 @@ function updateDashboard(driversList) {
     document.getElementById('driverBehind').innerHTML = stringBehind;
 
   } else {
-    document.getElementById('pos').innerText = `P-`;
+    document.getElementById('pos').innerText = 'P-';
     document.getElementById('driverAhead').innerHTML = '--';
     document.getElementById('driverBehind').innerHTML = '--';
-    document.getElementById('gap').innerText = '+0.000';
+    document.getElementById('gap').innerText = '--';
     document.getElementById('myDriverNum').innerText = '--';
   }
 }
