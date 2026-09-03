@@ -141,6 +141,9 @@ function stopSession() {
     ws = null;
   }
   
+  // Ferma eventuali tentativi di riconnessione in background
+  if (window.wsTimeout) clearTimeout(window.wsTimeout);
+  
   // 2. Svuota la memoria dei vecchi link e piloti
   currentRaceId = null;
   activeEngine = null;
@@ -194,6 +197,8 @@ function connectTime2Race() {
     ws.onerror = null; 
     ws.close();
   }
+  
+  if (window.wsTimeout) clearTimeout(window.wsTimeout);
 
   const wsUrl = `wss://api-stg.mk.time2race.it/live/${currentRaceId}/ranking/`;
   ws = new WebSocket(wsUrl);
@@ -212,17 +217,34 @@ function connectTime2Race() {
         updateBanner();
       }
 
-      let driversList = payload.drivers || (payload.data ? payload.data.drivers : null);
-      if (driversList && driversList.length > 0) {
-        lastKnownDrivers = driversList; 
-        populateDriverDropdown(driversList);
-        updateDashboard(driversList);
+      let incomingDrivers = payload.drivers || (payload.data ? payload.data.drivers : null);
+      if (incomingDrivers && incomingDrivers.length > 0) {
+        
+        // LOGICA DI FUSIONE: Aggiorna i piloti senza cancellare gli altri
+        incomingDrivers.forEach(newD => {
+          const idx = lastKnownDrivers.findIndex(oldD => String(getDriverId(oldD)) === String(getDriverId(newD)));
+          if (idx !== -1) {
+            lastKnownDrivers[idx] = { ...lastKnownDrivers[idx], ...newD }; // Aggiorna se esiste
+          } else {
+            lastKnownDrivers.push(newD); // Aggiunge se è nuovo
+          }
+        });
+
+        // Riordina matematicamente la classifica (P1, P2...) per non sballare chi sta davanti/dietro
+        lastKnownDrivers.sort((a, b) => {
+          let posA = parseInt(a.position || a.pos || 9999);
+          let posB = parseInt(b.position || b.pos || 9999);
+          return posA - posB;
+        });
+
+        populateDriverDropdown(lastKnownDrivers);
+        updateDashboard(lastKnownDrivers);
       }
     } catch (err) {}
   };
   
   ws.onerror = function() { setButtonState('error'); };
-  ws.onclose = function() { setTimeout(connectTime2Race, 3000); };
+  ws.onclose = function() { window.wsTimeout = setTimeout(connectTime2Race, 3000); };
 }
 
 async function connectMylaps(sessionId) {
@@ -234,6 +256,8 @@ async function connectMylaps(sessionId) {
     ws.onerror = null; 
     ws.close();
   }
+  
+  if (window.wsTimeout) clearTimeout(window.wsTimeout);
 
   try {
     const proxyUrl = 'https://mylaps-proxy.nico-mila91.workers.dev/?url=';
@@ -289,7 +313,7 @@ async function connectMylaps(sessionId) {
                    let lapsCount = '-';
                    if (d.l !== undefined) lapsCount = d.l;
                    else if (d.lc !== undefined) lapsCount = d.lc;
-                   else if (d.ls !== undefined) lapsCount = d.ls; // IL COLPEVOLE!
+                   else if (d.ls !== undefined) lapsCount = d.ls; 
                    else if (d.lap !== undefined) lapsCount = d.lap;
                    else if (d.laps !== undefined) lapsCount = d.laps;
                    else if (d.Laps !== undefined) lapsCount = d.Laps;
@@ -309,9 +333,25 @@ async function connectMylaps(sessionId) {
                    };
                  });
                  
-                 lastKnownDrivers = mappedDrivers;
-                 populateDriverDropdown(mappedDrivers);
-                 updateDashboard(mappedDrivers);
+                 // LOGICA DI FUSIONE ANCHE PER MYLAPS
+                 mappedDrivers.forEach(newD => {
+                   const idx = lastKnownDrivers.findIndex(oldD => String(oldD.id) === String(newD.id));
+                   if (idx !== -1) {
+                     lastKnownDrivers[idx] = { ...lastKnownDrivers[idx], ...newD };
+                   } else {
+                     lastKnownDrivers.push(newD);
+                   }
+                 });
+
+                 // RIORDINA CLASSIFICA
+                 lastKnownDrivers.sort((a, b) => {
+                   let posA = parseInt(a.position || 9999);
+                   let posB = parseInt(b.position || 9999);
+                   return posA - posB;
+                 });
+                 
+                 populateDriverDropdown(lastKnownDrivers);
+                 updateDashboard(lastKnownDrivers);
                }
             }
           } catch(e) {}
@@ -320,7 +360,7 @@ async function connectMylaps(sessionId) {
     };
     
     ws.onerror = function() { setButtonState('error'); };
-    ws.onclose = function() { setTimeout(() => connectMylaps(sessionId), 3000); };
+    ws.onclose = function() { window.wsTimeout = setTimeout(() => connectMylaps(sessionId), 3000); };
 
   } catch (error) {
     setButtonState('error');
