@@ -11,6 +11,24 @@ if ('wakeLock' in navigator) {
   navigator.wakeLock.request('screen').catch(console.error);
 }
 
+// ==========================================
+// INIEZIONE GRAFICA: CASELLA NUMERO DI GARA
+// ==========================================
+window.addEventListener('DOMContentLoaded', () => {
+  const selectRider = document.getElementById('driverSelect');
+  if (selectRider && selectRider.parentNode) {
+    // Casella rimpicciolita, bloccata a 50px e incollata a destra (margin-left: auto)
+    const inputStr = `<input type="text" id="myRaceNumber" placeholder="My#" title="Inserisci il tuo numero per l'Auto-Aggancio in pista" style="width: 50px; max-width: 50px; flex: 0 0 50px; margin-left: auto; margin-right: 6px; padding: 2px; border-radius: 4px; border: 1px solid #555; background: #222; color: #ffcc00; font-weight: bold; text-align: center; font-size: 0.95rem; box-sizing: border-box;">`;
+    selectRider.insertAdjacentHTML('beforebegin', inputStr);
+    
+    // Recupera il numero salvato in memoria
+    const savedNum = localStorage.getItem('pit_race_number');
+    if (savedNum) {
+      document.getElementById('myRaceNumber').value = savedNum;
+    }
+  }
+});
+
 function setButtonState(state) {
   const btn = document.getElementById('loadBtn');
   const stopBtn = document.getElementById('stopBtn'); // Cerca il tasto STOP
@@ -42,6 +60,10 @@ function setButtonState(state) {
 document.addEventListener('input', function(event) {
   if (event.target && event.target.id === 'raceLinkInput') {
     setButtonState('default');
+  }
+  // Salva il numero di gara in automatico mentre lo digiti
+  if (event.target && event.target.id === 'myRaceNumber') {
+    localStorage.setItem('pit_race_number', event.target.value.trim());
   }
 });
 
@@ -131,7 +153,7 @@ function loadNewRace() {
   }
 }
 
-// Funzione per fermare la sessione (Kill Switch)
+// Funzione per fermare la sessione e AZZERARE I NUMERI (Kill Switch)
 function stopSession() {
   // 1. Uccide la connessione radio in modo silenzioso
   if (ws) {
@@ -151,8 +173,15 @@ function stopSession() {
   
   // 3. Svuota la barra di testo
   document.getElementById('raceLinkInput').value = '';
+
+  // 4. Azzera la casellina del numero di gara in pista
+  const numInput = document.getElementById('myRaceNumber');
+  if (numInput) {
+    numInput.value = '';
+    localStorage.removeItem('pit_race_number');
+  }
   
-  // 4. Lancia il reset dell'interfaccia
+  // 5. Lancia il reset dell'interfaccia
   resetDashboard();
 }
 
@@ -180,6 +209,8 @@ function changeDriver() {
   selectedDriverId = newId;
   localStorage.setItem('pit_driver_id', newId);
   if (lastKnownDrivers.length > 0) updateDashboard(lastKnownDrivers);
+  
+  if (typeof sendConfigToLilyGO === "function") sendConfigToLilyGO();
 }
 
 document.addEventListener('change', function(event) {
@@ -420,7 +451,33 @@ function formatRivalInfo(driver, myDriver) {
 }
 
 function updateDashboard(driversList) {
-  // NUOVO BLOCCO DI SICUREZZA: Se non c'è il pilota (es. se hai premuto STOP), svuota tutto lo schermo e fermati.
+
+  // =========================================================
+  // LOGICA AUTO-LOCK (Inseguimento automatico numero di gara)
+  // =========================================================
+  const numInput = document.getElementById('myRaceNumber');
+  if (numInput && !selectedDriverId && driversList.length > 0) {
+    const targetNum = numInput.value.trim();
+    if (targetNum !== "") {
+      // Cerca nei piloti uno che abbia quel preciso numero
+      const autoDriver = driversList.find(d => String(d.raceno || d.no) === String(targetNum));
+      if (autoDriver) {
+        selectedDriverId = getDriverId(autoDriver);
+        localStorage.setItem('pit_driver_id', selectedDriverId);
+        
+        const selectEl = document.getElementById('driverSelect');
+        if (selectEl) selectEl.value = selectedDriverId;
+        
+        console.log("🎯 Auto-Lock agganciato! Pilota: #" + targetNum);
+        
+        if (typeof sendConfigToLilyGO === "function") {
+          sendConfigToLilyGO();
+        }
+      }
+    }
+  }
+
+  // NUOVO BLOCCO DI SICUREZZA: Se non c'è il pilota, svuota tutto lo schermo e fermati.
   if (!selectedDriverId) {
     document.getElementById('pos').innerText = 'P-';
     document.getElementById('driverAhead').innerHTML = '--';
