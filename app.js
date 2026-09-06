@@ -15,11 +15,14 @@ if ('wakeLock' in navigator) {
 // INIEZIONE GRAFICA: CASELLA NUMERO DI GARA
 // ==========================================
 window.addEventListener('DOMContentLoaded', () => {
-  const selectRider = document.getElementById('driverSelect');
-  if (selectRider && selectRider.parentNode) {
-    // Casella rimpicciolita, bloccata a 50px e incollata a destra (margin-left: auto)
-    const inputStr = `<input type="text" id="myRaceNumber" placeholder="My#" title="Inserisci il tuo numero per l'Auto-Aggancio in pista" style="width: 50px; max-width: 50px; flex: 0 0 50px; margin-left: auto; margin-right: 6px; padding: 2px; border-radius: 4px; border: 1px solid #555; background: #222; color: #ffcc00; font-weight: bold; text-align: center; font-size: 0.95rem; box-sizing: border-box;">`;
-    selectRider.insertAdjacentHTML('beforebegin', inputStr);
+  // CAMBIATO BERSAGLIO: Ora cerchiamo il tasto LOAD, non più il menù a tendina
+  const targetElement = document.getElementById('loadBtn'); 
+  if (targetElement && targetElement.parentNode) {
+    
+    // Togliamo il margin-left: auto e mettiamo un margin-left/right di 8px per staccarlo bene dal link e dal bottone
+    const inputStr = `<input type="text" id="myRaceNumber" placeholder="My#" title="Inserisci il tuo numero per l'Auto-Aggancio in pista" style="width: 50px; max-width: 50px; flex: 0 0 50px; margin-left: 8px; margin-right: 8px; padding: 2px; border-radius: 4px; border: 1px solid #555; background: #222; color: #ffcc00; font-weight: bold; text-align: center; font-size: 0.95rem; box-sizing: border-box;">`;
+    
+    targetElement.insertAdjacentHTML('beforebegin', inputStr);
     
     // Recupera il numero salvato in memoria
     const savedNum = localStorage.getItem('pit_race_number');
