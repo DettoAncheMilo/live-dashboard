@@ -17,8 +17,8 @@ if ('wakeLock' in navigator) {
 window.addEventListener('DOMContentLoaded', () => {
   const selectRider = document.getElementById('driverSelect');
   if (selectRider && selectRider.parentNode) {
-    // Larghezza ridotta a 65px e placeholder accorciato a "My #"
-    const inputStr = `<input type="text" id="myRaceNumber" placeholder="My #" title="Inserisci il tuo numero per l'Auto-Aggancio in pista" style="width: 65px; padding: 3px 5px; border-radius: 4px; border: 1px solid #555; background: #333; color: #ffcc00; font-weight: bold; text-align: center; margin-right: 8px; font-size: 0.9rem;">`;
+    // Casella rimpicciolita, bloccata a 50px e incollata a destra (margin-left: auto)
+    const inputStr = `<input type="text" id="myRaceNumber" placeholder="My#" title="Inserisci il tuo numero per l'Auto-Aggancio in pista" style="width: 50px; max-width: 50px; flex: 0 0 50px; margin-left: auto; margin-right: 6px; padding: 2px; border-radius: 4px; border: 1px solid #555; background: #222; color: #ffcc00; font-weight: bold; text-align: center; font-size: 0.95rem; box-sizing: border-box;">`;
     selectRider.insertAdjacentHTML('beforebegin', inputStr);
     
     // Recupera il numero salvato in memoria
@@ -153,6 +153,9 @@ function loadNewRace() {
   }
 }
 
+// ========================================================
+// Funzione per fermare la sessione e AZZERARE I NUMERI
+// ========================================================
 function stopSession() {
   if (ws) {
     ws.onclose = null; 
@@ -166,6 +169,14 @@ function stopSession() {
   activeEngine = null;
   localStorage.removeItem('pit_race_id');
   document.getElementById('raceLinkInput').value = '';
+
+  // Azzera la casellina del numero di gara in pista
+  const numInput = document.getElementById('myRaceNumber');
+  if (numInput) {
+    numInput.value = '';
+    localStorage.removeItem('pit_race_number');
+  }
+
   resetDashboard();
 }
 
@@ -432,7 +443,6 @@ function updateDashboard(driversList) {
   if (numInput && !selectedDriverId && driversList.length > 0) {
     const targetNum = numInput.value.trim();
     if (targetNum !== "") {
-      // Cerca nei piloti uno che abbia quel preciso numero
       const autoDriver = driversList.find(d => String(d.raceno || d.no) === String(targetNum));
       if (autoDriver) {
         selectedDriverId = getDriverId(autoDriver);
@@ -443,7 +453,6 @@ function updateDashboard(driversList) {
         
         console.log("🎯 Auto-Lock agganciato! Pilota: #" + targetNum);
         
-        // Spara subito le coordinate alla moto 
         if (typeof sendConfigToLilyGO === "function") {
           sendConfigToLilyGO();
         }
