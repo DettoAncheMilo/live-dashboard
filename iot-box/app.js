@@ -11,37 +11,58 @@ if ('wakeLock' in navigator) {
   navigator.wakeLock.request('screen').catch(console.error);
 }
 
+// ==========================================
+// INIEZIONE GRAFICA: CASELLA NUMERO DI GARA
+// ==========================================
+window.addEventListener('DOMContentLoaded', () => {
+  const selectRider = document.getElementById('driverSelect');
+  if (selectRider && selectRider.parentNode) {
+    const inputStr = `<input type="text" id="myRaceNumber" placeholder="My # (es. 77)" title="Inserisci il tuo numero per l'Auto-Aggancio in pista" style="width: 100px; padding: 3px 5px; border-radius: 4px; border: 1px solid #555; background: #333; color: #ffcc00; font-weight: bold; text-align: center; margin-right: 8px; font-size: 0.9rem;">`;
+    selectRider.insertAdjacentHTML('beforebegin', inputStr);
+    
+    // Recupera il numero salvato in memoria
+    const savedNum = localStorage.getItem('pit_race_number');
+    if (savedNum) {
+      document.getElementById('myRaceNumber').value = savedNum;
+    }
+  }
+});
+
 function setButtonState(state) {
   const btn = document.getElementById('loadBtn');
-  const stopBtn = document.getElementById('stopBtn'); // Cerca il tasto STOP
+  const stopBtn = document.getElementById('stopBtn');
   if (!btn) return;
 
   if (state === 'connected') {
     btn.style.backgroundColor = '#22c55e'; 
     btn.style.color = '#ffffff';
     btn.innerText = 'ONLINE ✓';
-    if (stopBtn) stopBtn.style.display = 'block'; // Fai apparire lo STOP
+    if (stopBtn) stopBtn.style.display = 'block'; 
   } else if (state === 'connecting') {
     btn.style.backgroundColor = '#3b82f6'; 
     btn.style.color = '#ffffff';
     btn.innerText = 'CONNECTING ⏳';
-    if (stopBtn) stopBtn.style.display = 'none'; // Nascondi lo STOP
+    if (stopBtn) stopBtn.style.display = 'none'; 
   } else if (state === 'error') {
     btn.style.backgroundColor = '#ef4444'; 
     btn.style.color = '#ffffff';
     btn.innerText = 'ERROR ⚠️';
-    if (stopBtn) stopBtn.style.display = 'none'; // Nascondi lo STOP
+    if (stopBtn) stopBtn.style.display = 'none'; 
   } else {
     btn.style.backgroundColor = '#ffcc00'; 
     btn.style.color = '#000000';
     btn.innerText = 'LOAD';
-    if (stopBtn) stopBtn.style.display = 'none'; // Nascondi lo STOP
+    if (stopBtn) stopBtn.style.display = 'none'; 
   }
 }
 
 document.addEventListener('input', function(event) {
   if (event.target && event.target.id === 'raceLinkInput') {
     setButtonState('default');
+  }
+  // Salva il numero di gara in automatico mentre lo digiti
+  if (event.target && event.target.id === 'myRaceNumber') {
+    localStorage.setItem('pit_race_number', event.target.value.trim());
   }
 });
 
@@ -131,28 +152,19 @@ function loadNewRace() {
   }
 }
 
-// Funzione per fermare la sessione (Kill Switch)
 function stopSession() {
-  // 1. Uccide la connessione radio in modo silenzioso
   if (ws) {
     ws.onclose = null; 
     ws.onerror = null; 
     ws.close();
     ws = null;
   }
-  
-  // Ferma eventuali tentativi di riconnessione in background
   if (window.wsTimeout) clearTimeout(window.wsTimeout);
   
-  // 2. Svuota la memoria dei vecchi link e piloti
   currentRaceId = null;
   activeEngine = null;
   localStorage.removeItem('pit_race_id');
-  
-  // 3. Svuota la barra di testo
   document.getElementById('raceLinkInput').value = '';
-  
-  // 4. Lancia il reset dell'interfaccia
   resetDashboard();
 }
 
@@ -166,10 +178,7 @@ function resetDashboard() {
   selectedDriverId = null;
   localStorage.removeItem('pit_driver_id');
   
-  // Chiama il motore grafico per forzare l'azzeramento
   updateDashboard([]);
-  
-  // Riporta il bottone giallo su LOAD e nasconde lo STOP
   setButtonState('default');
 }
 
@@ -181,8 +190,7 @@ function changeDriver() {
   localStorage.setItem('pit_driver_id', newId);
   if (lastKnownDrivers.length > 0) updateDashboard(lastKnownDrivers);
   
-  // INVIA I PARAMETRI ALLA LILYGO ALLA SELEZIONE DEL PILOTA
-  sendConfigToLilyGO();
+  if (typeof sendConfigToLilyGO === "function") sendConfigToLilyGO();
 }
 
 document.addEventListener('change', function(event) {
@@ -194,7 +202,6 @@ document.addEventListener('change', function(event) {
 function connectTime2Race() {
   if (!currentRaceId || activeEngine !== 'time2race') return;
   
-  // NUOVA CHIUSURA SILENZIOSA
   if (ws) {
     ws.onclose = null; 
     ws.onerror = null; 
@@ -223,17 +230,15 @@ function connectTime2Race() {
       let incomingDrivers = payload.drivers || (payload.data ? payload.data.drivers : null);
       if (incomingDrivers && incomingDrivers.length > 0) {
         
-        // LOGICA DI FUSIONE: Aggiorna i piloti senza cancellare gli altri
         incomingDrivers.forEach(newD => {
           const idx = lastKnownDrivers.findIndex(oldD => String(getDriverId(oldD)) === String(getDriverId(newD)));
           if (idx !== -1) {
-            lastKnownDrivers[idx] = { ...lastKnownDrivers[idx], ...newD }; // Aggiorna se esiste
+            lastKnownDrivers[idx] = { ...lastKnownDrivers[idx], ...newD };
           } else {
-            lastKnownDrivers.push(newD); // Aggiunge se è nuovo
+            lastKnownDrivers.push(newD);
           }
         });
 
-        // Riordina matematicamente la classifica (P1, P2...) per non sballare chi sta davanti/dietro
         lastKnownDrivers.sort((a, b) => {
           let posA = parseInt(a.position || a.pos || 9999);
           let posB = parseInt(b.position || b.pos || 9999);
@@ -253,7 +258,6 @@ function connectTime2Race() {
 async function connectMylaps(sessionId) {
   if (!currentRaceId || activeEngine !== 'mylaps') return;
   
-  // NUOVA CHIUSURA SILENZIOSA
   if (ws) {
     ws.onclose = null; 
     ws.onerror = null; 
@@ -311,7 +315,6 @@ async function connectMylaps(sessionId) {
 
                if (arg.results) {
                  const mappedDrivers = arg.results.map(d => {
-                   
                    let lapsCount = '-';
                    if (d.l !== undefined) lapsCount = d.l;
                    else if (d.lc !== undefined) lapsCount = d.lc;
@@ -335,7 +338,6 @@ async function connectMylaps(sessionId) {
                    };
                  });
                  
-                 // LOGICA DI FUSIONE ANCHE PER MYLAPS
                  mappedDrivers.forEach(newD => {
                    const idx = lastKnownDrivers.findIndex(oldD => String(oldD.id) === String(newD.id));
                    if (idx !== -1) {
@@ -345,7 +347,6 @@ async function connectMylaps(sessionId) {
                    }
                  });
 
-                 // RIORDINA CLASSIFICA
                  lastKnownDrivers.sort((a, b) => {
                    let posA = parseInt(a.position || 9999);
                    let posB = parseInt(b.position || 9999);
@@ -422,7 +423,33 @@ function formatRivalInfo(driver, myDriver) {
 }
 
 function updateDashboard(driversList) {
-  // NUOVO BLOCCO DI SICUREZZA: Se non c'è il pilota (es. se hai premuto STOP), svuota tutto lo schermo e fermati.
+  
+  // =========================================================
+  // LOGICA AUTO-LOCK (Inseguimento automatico numero di gara)
+  // =========================================================
+  const numInput = document.getElementById('myRaceNumber');
+  if (numInput && !selectedDriverId && driversList.length > 0) {
+    const targetNum = numInput.value.trim();
+    if (targetNum !== "") {
+      // Cerca nei piloti uno che abbia quel preciso numero
+      const autoDriver = driversList.find(d => String(d.raceno || d.no) === String(targetNum));
+      if (autoDriver) {
+        selectedDriverId = getDriverId(autoDriver);
+        localStorage.setItem('pit_driver_id', selectedDriverId);
+        
+        const selectEl = document.getElementById('driverSelect');
+        if (selectEl) selectEl.value = selectedDriverId;
+        
+        console.log("🎯 Auto-Lock agganciato! Pilota: #" + targetNum);
+        
+        // Spara subito le coordinate alla moto 
+        if (typeof sendConfigToLilyGO === "function") {
+          sendConfigToLilyGO();
+        }
+      }
+    }
+  }
+
   if (!selectedDriverId) {
     document.getElementById('pos').innerText = 'P-';
     document.getElementById('driverAhead').innerHTML = '--';
