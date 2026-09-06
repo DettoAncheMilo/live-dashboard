@@ -17,7 +17,8 @@ if ('wakeLock' in navigator) {
 window.addEventListener('DOMContentLoaded', () => {
   const selectRider = document.getElementById('driverSelect');
   if (selectRider && selectRider.parentNode) {
-    const inputStr = `<input type="text" id="myRaceNumber" placeholder="My # (es. 77)" title="Inserisci il tuo numero per l'Auto-Aggancio in pista" style="width: 100px; padding: 3px 5px; border-radius: 4px; border: 1px solid #555; background: #333; color: #ffcc00; font-weight: bold; text-align: center; margin-right: 8px; font-size: 0.9rem;">`;
+    // Larghezza ridotta a 65px e placeholder accorciato a "My #"
+    const inputStr = `<input type="text" id="myRaceNumber" placeholder="My #" title="Inserisci il tuo numero per l'Auto-Aggancio in pista" style="width: 65px; padding: 3px 5px; border-radius: 4px; border: 1px solid #555; background: #333; color: #ffcc00; font-weight: bold; text-align: center; margin-right: 8px; font-size: 0.9rem;">`;
     selectRider.insertAdjacentHTML('beforebegin', inputStr);
     
     // Recupera il numero salvato in memoria
