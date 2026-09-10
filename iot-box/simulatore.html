@@ -172,7 +172,7 @@
     // 1. Configurazione Radio
     const broker = "broker.hivemq.com";
     const port = 8884;
-    const client = new Paho.MQTT.Client(broker, port, "SimulatoreS23_" + parseInt(Math.random() * 100));
+    const client = new Paho.MQTT.Client(broker, port, "/mqtt", "SimulatoreS23_" + parseInt(Math.random() * 100000));
     let popupTimer = null;
 
     // 2. Eventi Connessione
@@ -228,12 +228,19 @@
       
       client.connect({
         useSSL: true,
+        timeout: 10,
         onSuccess: function() {
           document.getElementById('connStatus').innerText = "🟢 4G ONLINE TM";
           document.getElementById('connStatus').style.color = "#22c55e";
           // Mi iscrivo ai canali in ascolto
           client.subscribe("milo/pitboard/command");
           client.subscribe("milo/pitboard/live");
+        },
+        onFailure: function(err) {
+          // Se fallisce, ora ci scrive il VERO motivo a schermo!
+          document.getElementById('connStatus').innerText = "🔴 ERRORE: " + err.errorMessage;
+          document.getElementById('connStatus').style.color = "#ef4444";
+          setTimeout(connect, 5000);
         }
       });
     }
