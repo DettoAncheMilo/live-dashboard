@@ -20,7 +20,6 @@ if ('wakeLock' in navigator) {
 // INIEZIONE GRAFICA & INIZIALIZZAZIONE PAIRING
 // ==========================================
 window.addEventListener('DOMContentLoaded', () => {
-  // 1. Casella Auto-Aggancio in pista
   const targetElement = document.getElementById('loadBtn'); 
   if (targetElement && targetElement.parentNode) {
     const inputStr = `<input type="text" id="myRaceNumber" placeholder="My#" title="Insert your race number" style="width: 50px; max-width: 50px; flex: 0 0 50px; margin-left: 8px; margin-right: 8px; padding: 2px; border-radius: 4px; border: 1px solid #555; background: #222; color: #ffcc00; font-weight: bold; text-align: center; font-size: 0.95rem; box-sizing: border-box;">`;
@@ -32,14 +31,13 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // 2. Inizializzazione Pairing UI
   if (currentDeviceId !== "") {
     const inputEl = document.getElementById("deviceIdInput");
     const statusEl = document.getElementById("pairStatus");
     if (inputEl) inputEl.value = currentDeviceId;
     if (statusEl) {
       statusEl.innerText = "STATUS: PAIRED TO " + currentDeviceId;
-      statusEl.style.color = "#22c55e"; // Verde
+      statusEl.style.color = "#22c55e"; 
     }
   }
 });
@@ -66,7 +64,6 @@ window.pairDevice = function() {
     statusEl.style.color = "#22c55e";
   }
   
-  // Re-invia la configurazione al nuovo dispositivo accoppiato
   if (typeof sendConfigToLilyGO === "function") sendConfigToLilyGO();
 };
 
@@ -148,24 +145,6 @@ function parseTimeToMs(str) {
   if(parts.length > 0) secs += parseInt(parts.pop(), 10) * 3600;
   
   return (secs * 1000) + ms;
-}
-
-function timeStringToSeconds(str) {
-  if (!str) return 0;
-  const parts = str.split(':');
-  if (parts.length < 3) return 0;
-  return (+parts[0]) * 3600 + (+parts[1]) * 60 + (+parts[2]);
-}
-
-function secondsToTimeString(totalSeconds) {
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = totalSeconds % 60;
-  if (h > 0) {
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  } else {
-    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  }
 }
 
 function updateBanner() {
@@ -291,7 +270,6 @@ function connectTime2Race() {
 
       let incomingDrivers = payload.drivers || (payload.data ? payload.data.drivers : null);
       if (incomingDrivers && incomingDrivers.length > 0) {
-        
         incomingDrivers.forEach(newD => {
           const idx = lastKnownDrivers.findIndex(oldD => String(getDriverId(oldD)) === String(getDriverId(newD)));
           if (idx !== -1) {
@@ -485,7 +463,7 @@ function formatRivalInfo(driver, myDriver) {
 }
 
 // ==========================================
-// UPDATE DASHBOARD & TRASMISSIONE RADIO
+// UPDATE DASHBOARD & TRASMISSIONE RADIO FULL-HTML
 // ==========================================
 function updateDashboard(driversList) {
   const numInput = document.getElementById('myRaceNumber');
@@ -514,7 +492,6 @@ function updateDashboard(driversList) {
     document.getElementById('gap').innerText = '--';
     document.getElementById('myDriverNum').innerText = '--';
     
-    // Se non c'è pilota, trasmette dati "vuoti" per spegnere la Pitboard
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
       const payload = JSON.stringify({ p: 0, gap: "--", ahead: "--", behind: "--", num: "--", time: "--:--", laps: "-" });
       const message = new Paho.MQTT.Message(payload);
@@ -557,41 +534,36 @@ function updateDashboard(driversList) {
     const myNumText = myNum ? `#${myNum}` : 'ME';
     document.getElementById('myDriverNum').innerText = myNumText;
 
+    // Generiamo l'HTML completo (con colori, gap e delta)
     let stringAhead = '--';
-    let cleanAhead = '--';
     if (myPos > 1) {
       const driverAhead = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos - 1);
       stringAhead = driverAhead ? formatRivalInfo(driverAhead, myDriver) : '--';
-      if (driverAhead) cleanAhead = driverAhead.raceno || driverAhead.no ? "#" + (driverAhead.raceno || driverAhead.no) : "RIVAL";
     } else if (myPos === 1) {
-      stringAhead = '<span class="rival-num" style="color:#ffcc00">LEADER</span><span style="font-size: 1.8rem;">🥇</span>';
-      cleanAhead = "LEADER";
+      stringAhead = '<span class="rival-num" style="color:#ffcc00">LEADER</span><br><span style="font-size: 1.8rem;">🥇</span>';
     }
     document.getElementById('driverAhead').innerHTML = stringAhead;
 
     let stringBehind = '--';
-    let cleanBehind = '--';
     const driverBehind = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos + 1);
     
     if (driverBehind) {
       stringBehind = formatRivalInfo(driverBehind, myDriver);
-      cleanBehind = driverBehind.raceno || driverBehind.no ? "#" + (driverBehind.raceno || driverBehind.no) : "RIVAL";
     } else if (myPos > 0 && driversList.length > 0) {
       stringBehind = '<span class="rival-num" style="color:#888">CLEAR</span>';
-      cleanBehind = "CLEAR";
     }
     document.getElementById('driverBehind').innerHTML = stringBehind;
     
-    // TRASMETTE I DATI LIVE ALLA PITBOARD (MQTT)
+    // ORA INVIAMO L'HTML COMPLETO AL SIMULATORE
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
       const payload = JSON.stringify({
         p: myPos,
         gap: gapText,
-        ahead: cleanAhead,
-        behind: cleanBehind,
-        num: myNumText,         // AGGIUNTO!
-        time: sessionTimeLeft,  // AGGIUNTO!
-        laps: myDriverLaps      // AGGIUNTO!
+        ahead: stringAhead,   // Trasmette tutto il blocco HTML
+        behind: stringBehind, // Trasmette tutto il blocco HTML
+        num: myNumText,       // Es. #4
+        time: sessionTimeLeft,// Es. 11:51
+        laps: String(myDriverLaps) // Es. 14
       });
       const message = new Paho.MQTT.Message(payload);
       message.destinationName = "pitboard/" + currentDeviceId + "/live";
