@@ -484,6 +484,9 @@ function formatRivalInfo(driver, myDriver) {
   `;
 }
 
+// ==========================================
+// UPDATE DASHBOARD & TRASMISSIONE RADIO
+// ==========================================
 function updateDashboard(driversList) {
   const numInput = document.getElementById('myRaceNumber');
   if (numInput && !selectedDriverId && driversList.length > 0) {
@@ -510,6 +513,14 @@ function updateDashboard(driversList) {
     document.getElementById('driverBehind').innerHTML = '--';
     document.getElementById('gap').innerText = '--';
     document.getElementById('myDriverNum').innerText = '--';
+    
+    // Se non c'è pilota, trasmette dati "vuoti" per spegnere la Pitboard
+    if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
+      const payload = JSON.stringify({ p: 0, gap: "--", ahead: "--", behind: "--" });
+      const message = new Paho.MQTT.Message(payload);
+      message.destinationName = "pitboard/" + currentDeviceId + "/live";
+      try { mqttClient.send(message); } catch(e) {}
+    }
     return;
   }
 
@@ -524,43 +535,65 @@ function updateDashboard(driversList) {
 
     const leaderDriver = driversList.find(d => parseInt(d.position || d.pos, 10) === 1);
     
+    let gapText = "+0.000";
     if (myPos === 1) {
-      document.getElementById('gap').innerText = '+0.000';
+      gapText = '+0.000';
     } else if (leaderDriver) {
       let myBestMs = parseTimeToMs(formatLapTime(myDriver.besttime || myDriver.btTm));
       let leaderBestMs = parseTimeToMs(formatLapTime(leaderDriver.besttime || leaderDriver.btTm));
       
       if (myBestMs > 0 && leaderBestMs > 0) {
         let gapMs = Math.abs(myBestMs - leaderBestMs);
-        document.getElementById('gap').innerText = `+${(gapMs / 1000).toFixed(3)}`;
+        gapText = `+${(gapMs / 1000).toFixed(3)}`;
       } else {
-        document.getElementById('gap').innerText = myDriver.difference || myDriver.df ? `+${myDriver.difference || myDriver.df}` : '+0.000';
+        gapText = myDriver.difference || myDriver.df ? `+${myDriver.difference || myDriver.df}` : '+0.000';
       }
     } else {
-      document.getElementById('gap').innerText = myDriver.difference || myDriver.df ? `+${myDriver.difference || myDriver.df}` : '+0.000';
+      gapText = myDriver.difference || myDriver.df ? `+${myDriver.difference || myDriver.df}` : '+0.000';
     }
+    document.getElementById('gap').innerText = gapText;
 
     const myNum = myDriver.raceno || myDriver.no || '';
     document.getElementById('myDriverNum').innerText = myNum ? `#${myNum}` : 'ME';
 
     let stringAhead = '--';
+    let cleanAhead = '--';
     if (myPos > 1) {
       const driverAhead = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos - 1);
       stringAhead = driverAhead ? formatRivalInfo(driverAhead, myDriver) : '--';
+      if (driverAhead) cleanAhead = driverAhead.raceno || driverAhead.no ? "#" + (driverAhead.raceno || driverAhead.no) : "RIVAL";
     } else if (myPos === 1) {
       stringAhead = '<span class="rival-num" style="color:#ffcc00">LEADER</span><span style="font-size: 1.8rem;">🥇</span>';
+      cleanAhead = "LEADER";
     }
     document.getElementById('driverAhead').innerHTML = stringAhead;
 
     let stringBehind = '--';
+    let cleanBehind = '--';
     const driverBehind = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos + 1);
     
     if (driverBehind) {
       stringBehind = formatRivalInfo(driverBehind, myDriver);
+      cleanBehind = driverBehind.raceno || driverBehind.no ? "#" + (driverBehind.raceno || driverBehind.no) : "RIVAL";
     } else if (myPos > 0 && driversList.length > 0) {
       stringBehind = '<span class="rival-num" style="color:#888">CLEAR</span>';
+      cleanBehind = "CLEAR";
     }
     document.getElementById('driverBehind').innerHTML = stringBehind;
+    
+    // TRASMETTE I DATI LIVE ALLA PITBOARD (MQTT)
+    if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
+      const payload = JSON.stringify({
+        p: myPos,
+        gap: gapText,
+        ahead: cleanAhead,
+        behind: cleanBehind
+      });
+      const message = new Paho.MQTT.Message(payload);
+      message.destinationName = "pitboard/" + currentDeviceId + "/live";
+      message.retained = false;
+      try { mqttClient.send(message); } catch(e) {}
+    }
 
   } else {
     document.getElementById('pos').innerText = 'P-';
@@ -568,6 +601,13 @@ function updateDashboard(driversList) {
     document.getElementById('driverBehind').innerHTML = '--';
     document.getElementById('gap').innerText = '--';
     document.getElementById('myDriverNum').innerText = '--';
+    
+    if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
+      const payload = JSON.stringify({ p: 0, gap: "--", ahead: "--", behind: "--" });
+      const message = new Paho.MQTT.Message(payload);
+      message.destinationName = "pitboard/" + currentDeviceId + "/live";
+      try { mqttClient.send(message); } catch(e) {}
+    }
   }
 }
 
@@ -623,7 +663,6 @@ function connectMQTT() {
 }
 
 function sendConfigToLilyGO() {
-  // Se non c'è un dispositivo accoppiato, non trasmettere a nessuno
   if (!currentRaceId || !selectedDriverId || !isMqttConnected || currentDeviceId === "") return;
   
   const payload = JSON.stringify({
@@ -633,7 +672,6 @@ function sendConfigToLilyGO() {
   });
 
   const message = new Paho.MQTT.Message(payload);
-  // TRASMETTE SUL CANALE PRIVATO DEL DISPOSITIVO
   message.destinationName = "pitboard/" + currentDeviceId + "/config"; 
   message.retained = true; 
   
@@ -659,7 +697,6 @@ window.sendPitCommand = function(commandText, colorCode) {
   });
 
   const message = new Paho.MQTT.Message(payload);
-  // TRASMETTE SUL CANALE PRIVATO DEL DISPOSITIVO
   message.destinationName = "pitboard/" + currentDeviceId + "/command";
   message.retained = false; 
   
