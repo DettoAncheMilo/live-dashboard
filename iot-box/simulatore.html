@@ -5,14 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Pitboard Live Simulator</title>
   
-  <!-- NUOVO MOTORE: MQTT.js (Infallibile) -->
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 
   <style>
-    /* STILE E COLORI (La carrozzeria) */
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background-color: #000; color: #fff; font-family: 'Arial', sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; user-select: none; }
     .status-bar { height: 25px; background-color: #222; display: flex; justify-content: space-between; align-items: center; padding: 0 15px; font-size: 0.8rem; color: #aaa; font-weight: bold; }
+    .sim-id { color: #06b6d4; font-size: 1rem; font-weight: 900; letter-spacing: 1px; }
     .battery { display: flex; align-items: center; }
     .battery-icon { width: 30px; height: 12px; border: 2px solid #fff; border-radius: 2px; margin-left: 5px; position: relative; background: linear-gradient(90deg, #22c55e 75%, transparent 75%); }
     .battery-icon::after { content: ''; position: absolute; right: -4px; top: 2px; width: 2px; height: 4px; background: #fff; }
@@ -35,9 +34,9 @@
 </head>
 <body>
 
-  <!-- ELEMENTI HTML (I box) -->
   <div class="status-bar">
     <span id="connStatus">🟡 INIZIALIZZAZIONE...</span>
+    <span id="simIdDisplay" class="sim-id">ID: PIT-XXXX</span>
     <div class="battery">85% <div class="battery-icon"></div></div>
   </div>
 
@@ -64,10 +63,18 @@
 
   <div id="popup">MSG</div>
 
-  <!-- MOTORE JAVASCRIPT (Il cervello) -->
   <script>
+    // 1. Genera una Targa Fittizia per il Simulatore (es. PIT-S452)
+    const simId = "PIT-S" + Math.floor(Math.random() * 900 + 100);
+    document.getElementById('simIdDisplay').innerText = "ID: " + simId;
+
+    // 2. Crea i canali segreti
+    const topicCommand = "pitboard/" + simId + "/command";
+    const topicLive = "pitboard/" + simId + "/live";
+
+    // 3. Connessione MQTT
     const brokerUrl = "wss://broker.hivemq.com:8884/mqtt";
-    const clientId = "Sim_S23_" + parseInt(Math.random() * 100000);
+    const clientId = "Sim_Web_" + parseInt(Math.random() * 100000);
     
     const statusEl = document.getElementById('connStatus');
     statusEl.innerText = "🟡 CONNESSIONE 4G...";
@@ -83,8 +90,9 @@
     client.on('connect', function () {
       statusEl.innerText = "🟢 4G ONLINE TM";
       statusEl.style.color = "#22c55e";
-      client.subscribe("milo/pitboard/command");
-      client.subscribe("milo/pitboard/live");
+      // Si iscrive solo ai SUOI canali segreti
+      client.subscribe(topicCommand);
+      client.subscribe(topicLive);
     });
 
     client.on('error', function (err) {
@@ -97,12 +105,13 @@
       statusEl.style.color = "#ef4444";
     });
 
+    // 4. Arrivo dei dati
     client.on('message', function (topic, message) {
       try {
         const payload = message.toString();
         const data = JSON.parse(payload);
         
-        if (topic === "milo/pitboard/command") {
+        if (topic === topicCommand) {
           const popup = document.getElementById('popup');
           popup.innerText = data.cmd || "ERROR";
           popup.style.backgroundColor = data.color || "#000";
@@ -112,7 +121,7 @@
           if (popupTimer) clearTimeout(popupTimer);
           popupTimer = setTimeout(() => { popup.style.display = "none"; }, 4000);
         }
-        else if (topic === "milo/pitboard/live") {
+        else if (topic === topicLive) {
           if (document.getElementById('popup').style.display === "flex") return;
           document.getElementById('ui-pos').innerText = data.p === 0 ? "P-" : "P" + data.p;
           document.getElementById('ui-gap').innerText = data.gap || "--";
