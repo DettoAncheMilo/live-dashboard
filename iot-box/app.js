@@ -7,30 +7,82 @@ let sessionTimeLeft = "--:--";
 let myDriverLaps = "-";
 let activeEngine = 'time2race';
 
+// ==========================================
+// PAIRING LOGIC (Memoria Dispositivo)
+// ==========================================
+let currentDeviceId = localStorage.getItem("pitboard_id") || "";
+
 if ('wakeLock' in navigator) {
   navigator.wakeLock.request('screen').catch(console.error);
 }
 
 // ==========================================
-// INIEZIONE GRAFICA: CASELLA NUMERO DI GARA
+// INIEZIONE GRAFICA & INIZIALIZZAZIONE PAIRING
 // ==========================================
 window.addEventListener('DOMContentLoaded', () => {
-  // CAMBIATO BERSAGLIO: Ora cerchiamo il tasto LOAD, non più il menù a tendina
+  // 1. Casella Auto-Aggancio in pista
   const targetElement = document.getElementById('loadBtn'); 
   if (targetElement && targetElement.parentNode) {
-    
-    // Togliamo il margin-left: auto e mettiamo un margin-left/right di 8px per staccarlo bene dal link e dal bottone
-    const inputStr = `<input type="text" id="myRaceNumber" placeholder="My#" title="Inserisci il tuo numero per l'Auto-Aggancio in pista" style="width: 50px; max-width: 50px; flex: 0 0 50px; margin-left: 8px; margin-right: 8px; padding: 2px; border-radius: 4px; border: 1px solid #555; background: #222; color: #ffcc00; font-weight: bold; text-align: center; font-size: 0.95rem; box-sizing: border-box;">`;
-    
+    const inputStr = `<input type="text" id="myRaceNumber" placeholder="My#" title="Insert your race number" style="width: 50px; max-width: 50px; flex: 0 0 50px; margin-left: 8px; margin-right: 8px; padding: 2px; border-radius: 4px; border: 1px solid #555; background: #222; color: #ffcc00; font-weight: bold; text-align: center; font-size: 0.95rem; box-sizing: border-box;">`;
     targetElement.insertAdjacentHTML('beforebegin', inputStr);
     
-    // Recupera il numero salvato in memoria
     const savedNum = localStorage.getItem('pit_race_number');
     if (savedNum) {
       document.getElementById('myRaceNumber').value = savedNum;
     }
   }
+
+  // 2. Inizializzazione Pairing UI
+  if (currentDeviceId !== "") {
+    const inputEl = document.getElementById("deviceIdInput");
+    const statusEl = document.getElementById("pairStatus");
+    if (inputEl) inputEl.value = currentDeviceId;
+    if (statusEl) {
+      statusEl.innerText = "STATUS: PAIRED TO " + currentDeviceId;
+      statusEl.style.color = "#22c55e"; // Verde
+    }
+  }
 });
+
+// ==========================================
+// FUNZIONI PAIRING
+// ==========================================
+window.pairDevice = function() {
+  const inputEl = document.getElementById("deviceIdInput");
+  if (!inputEl) return;
+  const input = inputEl.value.trim().toUpperCase();
+  
+  if (input === "") {
+    alert("Please enter a valid Device ID!");
+    return;
+  }
+  
+  currentDeviceId = input;
+  localStorage.setItem("pitboard_id", currentDeviceId);
+  
+  const statusEl = document.getElementById("pairStatus");
+  if (statusEl) {
+    statusEl.innerText = "STATUS: PAIRED TO " + currentDeviceId;
+    statusEl.style.color = "#22c55e";
+  }
+  
+  // Re-invia la configurazione al nuovo dispositivo accoppiato
+  if (typeof sendConfigToLilyGO === "function") sendConfigToLilyGO();
+};
+
+window.unpairDevice = function() {
+  currentDeviceId = "";
+  localStorage.removeItem("pitboard_id");
+  
+  const inputEl = document.getElementById("deviceIdInput");
+  const statusEl = document.getElementById("pairStatus");
+  
+  if (inputEl) inputEl.value = "";
+  if (statusEl) {
+    statusEl.innerText = "STATUS: UNPAIRED";
+    statusEl.style.color = "#ffcc00";
+  }
+};
 
 function setButtonState(state) {
   const btn = document.getElementById('loadBtn');
@@ -64,7 +116,6 @@ document.addEventListener('input', function(event) {
   if (event.target && event.target.id === 'raceLinkInput') {
     setButtonState('default');
   }
-  // Salva il numero di gara in automatico mentre lo digiti
   if (event.target && event.target.id === 'myRaceNumber') {
     localStorage.setItem('pit_race_number', event.target.value.trim());
   }
@@ -156,9 +207,6 @@ function loadNewRace() {
   }
 }
 
-// ========================================================
-// Funzione per fermare la sessione e AZZERARE I NUMERI
-// ========================================================
 function stopSession() {
   if (ws) {
     ws.onclose = null; 
@@ -173,7 +221,6 @@ function stopSession() {
   localStorage.removeItem('pit_race_id');
   document.getElementById('raceLinkInput').value = '';
 
-  // Azzera la casellina del numero di gara in pista
   const numInput = document.getElementById('myRaceNumber');
   if (numInput) {
     numInput.value = '';
@@ -438,10 +485,6 @@ function formatRivalInfo(driver, myDriver) {
 }
 
 function updateDashboard(driversList) {
-  
-  // =========================================================
-  // LOGICA AUTO-LOCK (Inseguimento automatico numero di gara)
-  // =========================================================
   const numInput = document.getElementById('myRaceNumber');
   if (numInput && !selectedDriverId && driversList.length > 0) {
     const targetNum = numInput.value.trim();
@@ -453,8 +496,6 @@ function updateDashboard(driversList) {
         
         const selectEl = document.getElementById('driverSelect');
         if (selectEl) selectEl.value = selectedDriverId;
-        
-        console.log("🎯 Auto-Lock agganciato! Pilota: #" + targetNum);
         
         if (typeof sendConfigToLilyGO === "function") {
           sendConfigToLilyGO();
@@ -563,11 +604,10 @@ if (currentRaceId) {
 // ==========================================
 // TRASMETTITORE IOT (MQTT per LilyGO)
 // ==========================================
-const mqttClient = new Paho.MQTT.Client("broker.hivemq.com", 8884, "PitWall_Web_" + parseInt(Math.random() * 1000));
+const mqttClient = new Paho.MQTT.Client("broker.hivemq.com", 8884, "PitWall_Web_" + parseInt(Math.random() * 100000));
 let isMqttConnected = false;
 
 mqttClient.onConnectionLost = function(responseObject) {
-  console.log("Antenna MQTT Disconnessa:", responseObject.errorMessage);
   isMqttConnected = false;
   setTimeout(connectMQTT, 5000); 
 };
@@ -576,7 +616,6 @@ function connectMQTT() {
   mqttClient.connect({
     useSSL: true,
     onSuccess: function() {
-      console.log("✅ Connesso al Broker MQTT! Pronto a trasmettere alla moto.");
       isMqttConnected = true;
       sendConfigToLilyGO(); 
     }
@@ -584,7 +623,8 @@ function connectMQTT() {
 }
 
 function sendConfigToLilyGO() {
-  if (!currentRaceId || !selectedDriverId || !isMqttConnected) return;
+  // Se non c'è un dispositivo accoppiato, non trasmettere a nessuno
+  if (!currentRaceId || !selectedDriverId || !isMqttConnected || currentDeviceId === "") return;
   
   const payload = JSON.stringify({
     engine: activeEngine,
@@ -593,18 +633,23 @@ function sendConfigToLilyGO() {
   });
 
   const message = new Paho.MQTT.Message(payload);
-  message.destinationName = "milo/pitboard/config"; 
+  // TRASMETTE SUL CANALE PRIVATO DEL DISPOSITIVO
+  message.destinationName = "pitboard/" + currentDeviceId + "/config"; 
   message.retained = true; 
   
   try {
     mqttClient.send(message);
-    console.log("📡 Parametri inviati alla LilyGO:", payload);
   } catch(e) {}
 }
 
 window.sendPitCommand = function(commandText, colorCode) {
   if (!isMqttConnected) {
-    alert("⚠️ Connessione radio non attiva. Attendi...");
+    alert("⚠️ Radio connection not active. Please wait...");
+    return;
+  }
+  
+  if (currentDeviceId === "") {
+    alert("⚠️ No Device Paired! Please pair your Pitboard in the settings first.");
     return;
   }
 
@@ -614,19 +659,17 @@ window.sendPitCommand = function(commandText, colorCode) {
   });
 
   const message = new Paho.MQTT.Message(payload);
-  message.destinationName = "milo/pitboard/command";
+  // TRASMETTE SUL CANALE PRIVATO DEL DISPOSITIVO
+  message.destinationName = "pitboard/" + currentDeviceId + "/command";
   message.retained = false; 
   
   try {
     mqttClient.send(message);
-    console.log("🚩 Comando PitWall Inviato:", payload);
     
     document.body.style.border = "4px solid white";
     setTimeout(() => { document.body.style.border = "none"; }, 500);
 
-  } catch(e) {
-    console.log("Errore invio comando", e);
-  }
+  } catch(e) {}
 };
 
 connectMQTT();
