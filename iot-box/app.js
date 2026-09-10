@@ -516,7 +516,7 @@ function updateDashboard(driversList) {
     
     // Se non c'è pilota, trasmette dati "vuoti" per spegnere la Pitboard
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
-      const payload = JSON.stringify({ p: 0, gap: "--", ahead: "--", behind: "--" });
+      const payload = JSON.stringify({ p: 0, gap: "--", ahead: "--", behind: "--", num: "--", time: "--:--", laps: "-" });
       const message = new Paho.MQTT.Message(payload);
       message.destinationName = "pitboard/" + currentDeviceId + "/live";
       try { mqttClient.send(message); } catch(e) {}
@@ -554,7 +554,8 @@ function updateDashboard(driversList) {
     document.getElementById('gap').innerText = gapText;
 
     const myNum = myDriver.raceno || myDriver.no || '';
-    document.getElementById('myDriverNum').innerText = myNum ? `#${myNum}` : 'ME';
+    const myNumText = myNum ? `#${myNum}` : 'ME';
+    document.getElementById('myDriverNum').innerText = myNumText;
 
     let stringAhead = '--';
     let cleanAhead = '--';
@@ -587,7 +588,10 @@ function updateDashboard(driversList) {
         p: myPos,
         gap: gapText,
         ahead: cleanAhead,
-        behind: cleanBehind
+        behind: cleanBehind,
+        num: myNumText,         // AGGIUNTO!
+        time: sessionTimeLeft,  // AGGIUNTO!
+        laps: myDriverLaps      // AGGIUNTO!
       });
       const message = new Paho.MQTT.Message(payload);
       message.destinationName = "pitboard/" + currentDeviceId + "/live";
@@ -603,7 +607,7 @@ function updateDashboard(driversList) {
     document.getElementById('myDriverNum').innerText = '--';
     
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
-      const payload = JSON.stringify({ p: 0, gap: "--", ahead: "--", behind: "--" });
+      const payload = JSON.stringify({ p: 0, gap: "--", ahead: "--", behind: "--", num: "--", time: "--:--", laps: "-" });
       const message = new Paho.MQTT.Message(payload);
       message.destinationName = "pitboard/" + currentDeviceId + "/live";
       try { mqttClient.send(message); } catch(e) {}
