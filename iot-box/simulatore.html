@@ -10,11 +10,12 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background-color: #000; color: #fff; font-family: 'Arial', sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; user-select: none; }
-    .status-bar { height: 25px; background-color: #222; display: flex; justify-content: space-between; align-items: center; padding: 0 15px; font-size: 0.8rem; color: #aaa; font-weight: bold; }
-    .sim-id { color: #06b6d4; font-size: 1rem; font-weight: 900; letter-spacing: 1px; }
-    .battery { display: flex; align-items: center; }
-    .battery-icon { width: 30px; height: 12px; border: 2px solid #fff; border-radius: 2px; margin-left: 5px; position: relative; background: linear-gradient(90deg, #22c55e 75%, transparent 75%); }
-    .battery-icon::after { content: ''; position: absolute; right: -4px; top: 2px; width: 2px; height: 4px; background: #fff; }
+    
+    /* Modificata la Status Bar per farci stare Tempo e Giri */
+    .status-bar { height: 28px; background-color: #222; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; font-size: 0.8rem; color: #aaa; font-weight: bold; }
+    .sim-id { color: #06b6d4; font-size: 0.9rem; font-weight: 900; letter-spacing: 1px; }
+    .session-info { color: #fff; font-size: 0.9rem; }
+    
     .dashboard { flex: 1; display: flex; flex-direction: column; padding: 10px; gap: 10px; }
     .row-top { display: flex; flex: 1; gap: 10px; }
     .box { border: 3px solid #333; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
@@ -28,16 +29,17 @@
     .track-title { color: #555; font-size: 1rem; font-weight: bold; margin-bottom: 5px; }
     .val-track { color: #06b6d4; font-size: 2.5rem; font-weight: bold; }
     .arrows { display: flex; align-items: center; gap: 15px; font-size: 3rem; color: #ffcc00; }
-    .dashes { color: #fff; font-size: 2.5rem; font-weight: bold; letter-spacing: 5px; }
+    .dashes { color: #fff; font-size: 2.8rem; font-weight: bold; letter-spacing: 2px; }
     #popup { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 9999; font-size: 8rem; font-weight: 900; text-transform: uppercase; text-align: center; }
   </style>
 </head>
 <body>
 
+  <!-- STATUS BAR AGGIORNATA -->
   <div class="status-bar">
     <span id="connStatus">🟡 INIZIALIZZAZIONE...</span>
     <span id="simIdDisplay" class="sim-id">ID: PIT-XXXX</span>
-    <div class="battery">85% <div class="battery-icon"></div></div>
+    <span class="session-info">⏱ <span id="ui-time" style="color:#22c55e;">--:--</span> | 🔄 <span id="ui-laps" style="color:#3b82f6;">-</span></span>
   </div>
 
   <div class="dashboard">
@@ -55,7 +57,10 @@
       <div class="title">TRACK POSITION</div>
       <div class="track-pos-container">
         <div class="track-col"><div class="track-title">BEHIND</div><div class="val-track" id="ui-behind">--</div></div>
-        <div class="arrows"><span>&#9664;</span><span class="dashes">--</span><span>&#9654;</span></div>
+        
+        <!-- AGGIUNTO ID "ui-num" PER RICEVERE IL NUMERO AL CENTRO -->
+        <div class="arrows"><span>&#9664;</span><span class="dashes" id="ui-num">--</span><span>&#9654;</span></div>
+        
         <div class="track-col"><div class="track-title">AHEAD</div><div class="val-track" id="ui-ahead">--</div></div>
       </div>
     </div>
@@ -64,15 +69,12 @@
   <div id="popup">MSG</div>
 
   <script>
-    // 1. Genera una Targa Fittizia per il Simulatore (es. PIT-S452)
     const simId = "PIT-S" + Math.floor(Math.random() * 900 + 100);
     document.getElementById('simIdDisplay').innerText = "ID: " + simId;
 
-    // 2. Crea i canali segreti
     const topicCommand = "pitboard/" + simId + "/command";
     const topicLive = "pitboard/" + simId + "/live";
 
-    // 3. Connessione MQTT
     const brokerUrl = "wss://broker.hivemq.com:8884/mqtt";
     const clientId = "Sim_Web_" + parseInt(Math.random() * 100000);
     
@@ -90,7 +92,6 @@
     client.on('connect', function () {
       statusEl.innerText = "🟢 4G ONLINE TM";
       statusEl.style.color = "#22c55e";
-      // Si iscrive solo ai SUOI canali segreti
       client.subscribe(topicCommand);
       client.subscribe(topicLive);
     });
@@ -105,7 +106,6 @@
       statusEl.style.color = "#ef4444";
     });
 
-    // 4. Arrivo dei dati
     client.on('message', function (topic, message) {
       try {
         const payload = message.toString();
@@ -123,15 +123,36 @@
         }
         else if (topic === topicLive) {
           if (document.getElementById('popup').style.display === "flex") return;
+          
           document.getElementById('ui-pos').innerText = data.p === 0 ? "P-" : "P" + data.p;
           document.getElementById('ui-gap').innerText = data.gap || "--";
           document.getElementById('ui-behind').innerText = data.behind || "--";
           document.getElementById('ui-ahead').innerText = data.ahead || "--";
+          
+          // NUOVI DATI DA STAMPARE
+          document.getElementById('ui-num').innerText = data.num || "--";
+          document.getElementById('ui-time').innerText = data.time || "--:--";
+          document.getElementById('ui-laps').innerText = data.laps || "-";
         }
       } catch(e) {
         console.log("Errore pacchetto:", e);
       }
     });
+
+    // ==========================================
+    // ANTI-STANDBY (WAKE LOCK API)
+    // ==========================================
+    let wakeLock = null;
+    const requestWakeLock = async () => {
+      try {
+        wakeLock = await navigator.wakeLock.request('screen');
+        console.log("Schermo bloccato acceso!");
+      } catch (err) {}
+    };
+    
+    // Richiede all'utente di toccare lo schermo per attivare il blocco
+    document.body.addEventListener('click', requestWakeLock);
+    document.body.addEventListener('touchstart', requestWakeLock);
   </script>
 </body>
 </html>
