@@ -5,80 +5,51 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Pitboard Live Simulator</title>
   
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js"></script>
-
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background-color: #000; color: #fff; font-family: 'Arial', sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; user-select: none; }
-    .status-bar { height: 25px; background-color: #222; display: flex; justify-content: space-between; align-items: center; padding: 0 15px; font-size: 0.8rem; color: #aaa; font-weight: bold; }
-    .battery { display: flex; align-items: center; }
-    .battery-icon { width: 30px; height: 12px; border: 2px solid #fff; border-radius: 2px; margin-left: 5px; position: relative; background: linear-gradient(90deg, #22c55e 75%, transparent 75%); }
-    .battery-icon::after { content: ''; position: absolute; right: -4px; top: 2px; width: 2px; height: 4px; background: #fff; }
-    .dashboard { flex: 1; display: flex; flex-direction: column; padding: 10px; gap: 10px; }
-    .row-top { display: flex; flex: 1; gap: 10px; }
-    .box { border: 3px solid #333; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
-    .box-half { flex: 1; }
-    .box-full { flex: 1; display: flex; flex-direction: column; }
-    .title { position: absolute; top: 10px; color: #777; font-size: 1.1rem; font-weight: 900; letter-spacing: 1px; }
-    .val-pos { color: #ffcc00; font-size: 6rem; font-weight: bold; margin-top: 15px; }
-    .val-gap { color: #ef4444; font-size: 4.5rem; font-weight: bold; margin-top: 15px; }
-    .track-pos-container { display: flex; width: 100%; justify-content: space-around; align-items: center; margin-top: 25px; }
-    .track-col { display: flex; flex-direction: column; align-items: center; }
-    .track-title { color: #555; font-size: 1rem; font-weight: bold; margin-bottom: 5px; }
-    .val-track { color: #06b6d4; font-size: 2.5rem; font-weight: bold; }
-    .arrows { display: flex; align-items: center; gap: 15px; font-size: 3rem; color: #ffcc00; }
-    .dashes { color: #fff; font-size: 2.5rem; font-weight: bold; letter-spacing: 5px; }
-    #popup { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 9999; font-size: 8rem; font-weight: 900; text-transform: uppercase; text-align: center; }
-  </style>
-</head>
-<body>
-
-  <div class="status-bar">
-    <span id="connStatus">🔴 OFFLINE - 4G TM</span>
-    <div class="battery">85% <div class="battery-icon"></div></div>
-  </div>
-
-  <div class="dashboard">
-    <div class="row-top">
-      <div class="box box-half">
-        <div class="title">POSITION</div>
-        <div class="val-pos" id="ui-pos">P-</div>
-      </div>
-      <div class="box box-half">
-        <div class="title">GAP TO LEADER</div>
-        <div class="val-gap" id="ui-gap">--</div>
-      </div>
-    </div>
-    <div class="box box-full">
-      <div class="title">TRACK POSITION</div>
-      <div class="track-pos-container">
-        <div class="track-col"><div class="track-title">BEHIND</div><div class="val-track" id="ui-behind">--</div></div>
-        <div class="arrows"><span>&#9664;</span><span class="dashes">--</span><span>&#9654;</span></div>
-        <div class="track-col"><div class="track-title">AHEAD</div><div class="val-track" id="ui-ahead">--</div></div>
-      </div>
-    </div>
-  </div>
-
-  <div id="popup">MSG</div>
+ <!-- NUOVO MOTORE: MQTT.js (Infallibile) -->
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 
   <script>
-    const broker = "broker.hivemq.com";
-    const port = 8884;
-    const client = new Paho.MQTT.Client(broker, port, "/mqtt", "Sim_S23_" + parseInt(Math.random() * 100000));
+    // 1. Configurazione della Radio
+    const brokerUrl = "wss://broker.hivemq.com:8884/mqtt";
+    const clientId = "Sim_S23_" + parseInt(Math.random() * 100000);
+    
+    document.getElementById('connStatus').innerText = "🟡 CONNESSIONE 4G...";
+    document.getElementById('connStatus').style.color = "#ffcc00";
+
+    // Avvia la connessione in modo automatico e invisibile
+    const client = mqtt.connect(brokerUrl, {
+      clientId: clientId,
+      reconnectPeriod: 3000 // Se cade la linea, riprova ogni 3 secondi da solo
+    });
+
     let popupTimer = null;
 
-    client.onConnectionLost = function(responseObject) {
-      document.getElementById('connStatus').innerText = "🔴 CONNESSIONE PERSA: " + responseObject.errorMessage;
+    // 2. Quando il semaforo diventa Verde
+    client.on('connect', function () {
+      document.getElementById('connStatus').innerText = "🟢 4G ONLINE TM";
+      document.getElementById('connStatus').style.color = "#22c55e";
+      // Ascolta i canali della tua pitboard
+      client.subscribe("milo/pitboard/command");
+      client.subscribe("milo/pitboard/live");
+    });
+
+    // 3. Gestione Errori e Disconnessioni (ora è gestita nativamente)
+    client.on('error', function (err) {
+      document.getElementById('connStatus').innerText = "🔴 ERRORE: " + err.message;
       document.getElementById('connStatus').style.color = "#ef4444";
-      setTimeout(connect, 3000);
-    };
+    });
 
-    client.onMessageArrived = function(message) {
-      const topic = message.destinationName;
-      const payload = message.payloadString;
+    client.on('offline', function() {
+      document.getElementById('connStatus').innerText = "🔴 OFFLINE - RICERCA RETE...";
+      document.getElementById('connStatus').style.color = "#ef4444";
+    });
 
+    // 4. Arrivo dei dati in tempo reale
+    client.on('message', function (topic, message) {
       try {
+        const payload = message.toString();
         const data = JSON.parse(payload);
+        
         if (topic === "milo/pitboard/command") {
           const popup = document.getElementById('popup');
           popup.innerText = data.cmd || "ERROR";
@@ -96,31 +67,10 @@
           document.getElementById('ui-behind').innerText = data.behind || "--";
           document.getElementById('ui-ahead').innerText = data.ahead || "--";
         }
-      } catch(e) {}
-    };
-
-    function connect() {
-      document.getElementById('connStatus').innerText = "🟡 CONNESSIONE 4G...";
-      document.getElementById('connStatus').style.color = "#ffcc00";
-      
-      client.connect({
-        useSSL: true,
-        timeout: 10,
-        onSuccess: function() {
-          document.getElementById('connStatus').innerText = "🟢 4G ONLINE TM";
-          document.getElementById('connStatus').style.color = "#22c55e";
-          client.subscribe("milo/pitboard/command");
-          client.subscribe("milo/pitboard/live");
-        },
-        onFailure: function(err) {
-          document.getElementById('connStatus').innerText = "🔴 ERRORE: " + err.errorMessage;
-          document.getElementById('connStatus').style.color = "#ef4444";
-          setTimeout(connect, 5000);
-        }
-      });
-    }
-
-    connect();
+      } catch(e) {
+        console.log("Errore pacchetto:", e);
+      }
+    });
   </script>
 </body>
 </html>
