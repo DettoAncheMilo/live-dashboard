@@ -127,7 +127,20 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
   <script src="app.js"></script>
+
+  <div class="command-panel">
+    <button class="cmd-btn btn-push" onclick="sendPitCommand('PUSH PUSH', 'GREEN')">PUSH</button>
+    <button class="cmd-btn btn-slow" onclick="sendPitCommand('RIDER BEHIND', 'YELLOW')">RIDER BEHIND</button>
+    <button class="cmd-btn btn-box" onclick="sendPitCommand('BOX BOX', 'RED')">BOX</button>
+  </div>
+
+  <!-- HACK AUDIO SILENZIOSO PER ESECUZIONE IN BACKGROUND -->
+  <audio id="keepAliveAudio" loop playsinline src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA"></audio>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
+
 
 
