@@ -157,6 +157,12 @@ function loadNewRace() {
   const inputUrl = document.getElementById('raceLinkInput').value;
   if (!inputUrl) return;
 
+  // HACK: Attiva l'audio silenzioso per tenere vivo il background
+  const keepAliveAudio = document.getElementById('keepAliveAudio');
+  if (keepAliveAudio) {
+    keepAliveAudio.play().catch(e => console.log("Audio background ignorato"));
+  }
+
   setButtonState('connecting');
   
   if (inputUrl.includes('time2race.it')) {
@@ -411,15 +417,24 @@ async function connectMylaps(sessionId) {
   }
 }
 
+// ==========================================
+// RIVAL INFO (QUALY MODE: Last & Best)
+// ==========================================
 function formatRivalInfo(driver, myDriver) {
   if (!driver) return '--';
   const num = driver.raceno || driver.no || '';
   
   const theirLastTimeRaw = driver.lasttime || driver.lsTm;
   const theirLastLap = formatLapTime(theirLastTimeRaw);
+  
+  const theirBestTimeRaw = driver.besttime || driver.btTm;
+  const theirBestLap = formatLapTime(theirBestTimeRaw);
+  
   const nameStr = num ? `#${num}` : (driver.fullname || driver.nam || driver.nickname || 'Rider').substring(0, 8);
   
   let gapHtml = '';
+  let paceDeltaHtml = '<span style="color: #666;">Δ --</span>';
+  let bestDeltaHtml = '<span style="color: #666;">Δ --</span>';
   
   if (myDriver) {
     let myDiffStr = String(myDriver.difference || myDriver.df || '0');
@@ -436,29 +451,39 @@ function formatRivalInfo(driver, myDriver) {
       let gap = Math.abs(d1 - d2);
       physicalGapText = `GAP +${gap.toFixed(3)}`;
     }
+    gapHtml = `<span style="font-size: 1.1rem; color: #ffcc00; margin-top: 4px; margin-bottom: 4px; font-weight: bold;">${physicalGapText}</span>`;
 
-    let paceDeltaText = '';
+    // Delta Passo (Last Lap)
     let myLastTimeRaw = myDriver.lasttime || myDriver.lsTm;
-    let myMs = parseTimeToMs(formatLapTime(myLastTimeRaw));
-    let theirMs = parseTimeToMs(theirLastLap);
-    
-    if (myMs > 0 && theirMs > 0) {
-      let diffMs = theirMs - myMs;
+    let myLastMs = parseTimeToMs(formatLapTime(myLastTimeRaw));
+    let theirLastMs = parseTimeToMs(theirLastLap);
+    if (myLastMs > 0 && theirLastMs > 0) {
+      let diffMs = theirLastMs - myLastMs;
       let sign = diffMs > 0 ? '+' : '';
       let color = diffMs > 0 ? '#22c55e' : '#ef4444'; 
-      paceDeltaText = `<span style="color: ${color};">Δ ${sign}${(diffMs/1000).toFixed(3)}</span>`;
+      paceDeltaHtml = `<span style="color: ${color};">Δ ${sign}${(diffMs/1000).toFixed(3)}</span>`;
     }
 
-    gapHtml = `
-      <span style="font-size: 1.1rem; color: #ffcc00; margin-top: 4px; font-weight: bold;">${physicalGapText}</span>
-      <span style="font-size: 1.1rem; font-weight: bold;">${paceDeltaText}</span>
-    `;
+    // Delta Assoluto (Best Lap)
+    let myBestTimeRaw = myDriver.besttime || myDriver.btTm;
+    let myBestMs = parseTimeToMs(formatLapTime(myBestTimeRaw));
+    let theirBestMs = parseTimeToMs(theirBestLap);
+    if (myBestMs > 0 && theirBestMs > 0) {
+      let diffMs = theirBestMs - myBestMs;
+      let sign = diffMs > 0 ? '+' : '';
+      let color = diffMs > 0 ? '#22c55e' : '#ef4444'; 
+      bestDeltaHtml = `<span style="color: ${color};">Δ ${sign}${(diffMs/1000).toFixed(3)}</span>`;
+    }
   }
 
+  // Costruisce la grafica a blocco con Last e Best incolonnati e Delta allineati
   return `
     <span class="rival-num">${nameStr}</span>
-    <span style="font-size: 1.4rem; color: #ccc;">⏱ ${theirLastLap}</span>
     ${gapHtml}
+    <div style="display:flex; flex-direction:column; gap:4px; font-size:1.1rem; font-weight:bold; background:#1a1a1a; padding:6px; border-radius:6px; border:1px solid #333; margin-top:2px; width:100%; min-width:170px;">
+       <span style="color:#ccc; display:flex; justify-content:space-between; align-items:center;"><span>⏱ L: ${theirLastLap}</span> ${paceDeltaHtml}</span>
+       <span style="color:#06b6d4; display:flex; justify-content:space-between; align-items:center;"><span>🔥 B: ${theirBestLap}</span> ${bestDeltaHtml}</span>
+    </div>
   `;
 }
 
@@ -534,7 +559,6 @@ function updateDashboard(driversList) {
     const myNumText = myNum ? `#${myNum}` : 'ME';
     document.getElementById('myDriverNum').innerText = myNumText;
 
-    // Generiamo l'HTML completo (con colori, gap e delta)
     let stringAhead = '--';
     if (myPos > 1) {
       const driverAhead = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos - 1);
@@ -554,16 +578,16 @@ function updateDashboard(driversList) {
     }
     document.getElementById('driverBehind').innerHTML = stringBehind;
     
-    // ORA INVIAMO L'HTML COMPLETO AL SIMULATORE
+    // TRASMISSIONE AL TELEFONO/LILYGO
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
       const payload = JSON.stringify({
         p: myPos,
         gap: gapText,
-        ahead: stringAhead,   // Trasmette tutto il blocco HTML
-        behind: stringBehind, // Trasmette tutto il blocco HTML
-        num: myNumText,       // Es. #4
-        time: sessionTimeLeft,// Es. 11:51
-        laps: String(myDriverLaps) // Es. 14
+        ahead: stringAhead,
+        behind: stringBehind,
+        num: myNumText,       
+        time: sessionTimeLeft,
+        laps: String(myDriverLaps) 
       });
       const message = new Paho.MQTT.Message(payload);
       message.destinationName = "pitboard/" + currentDeviceId + "/live";
