@@ -8,7 +8,7 @@ let myDriverLaps = "-";
 let activeEngine = 'time2race';
 
 // ==========================================
-// PAIRING LOGIC (Memoria Dispositivo)
+// PAIRING LOGIC
 // ==========================================
 let currentDeviceId = localStorage.getItem("pitboard_id") || "";
 
@@ -16,9 +16,6 @@ if ('wakeLock' in navigator) {
   navigator.wakeLock.request('screen').catch(console.error);
 }
 
-// ==========================================
-// INIEZIONE GRAFICA & INIZIALIZZAZIONE PAIRING
-// ==========================================
 window.addEventListener('DOMContentLoaded', () => {
   const targetElement = document.getElementById('loadBtn'); 
   if (targetElement && targetElement.parentNode) {
@@ -42,9 +39,6 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// ==========================================
-// FUNZIONI PAIRING
-// ==========================================
 window.pairDevice = function() {
   const inputEl = document.getElementById("deviceIdInput");
   if (!inputEl) return;
@@ -157,7 +151,6 @@ function loadNewRace() {
   const inputUrl = document.getElementById('raceLinkInput').value;
   if (!inputUrl) return;
 
-  // HACK: Attiva l'audio silenzioso per tenere vivo il background
   const keepAliveAudio = document.getElementById('keepAliveAudio');
   if (keepAliveAudio) {
     keepAliveAudio.play().catch(e => console.log("Audio background ignorato"));
@@ -417,9 +410,6 @@ async function connectMylaps(sessionId) {
   }
 }
 
-// ==========================================
-// RIVAL INFO (QUALY MODE: Last & Best)
-// ==========================================
 function formatRivalInfo(driver, myDriver) {
   if (!driver) return '--';
   const num = driver.raceno || driver.no || '';
@@ -453,7 +443,6 @@ function formatRivalInfo(driver, myDriver) {
     }
     gapHtml = `<span style="font-size: 1.1rem; color: #ffcc00; margin-top: 4px; margin-bottom: 4px; font-weight: bold;">${physicalGapText}</span>`;
 
-    // Delta Passo (Last Lap)
     let myLastTimeRaw = myDriver.lasttime || myDriver.lsTm;
     let myLastMs = parseTimeToMs(formatLapTime(myLastTimeRaw));
     let theirLastMs = parseTimeToMs(theirLastLap);
@@ -464,7 +453,6 @@ function formatRivalInfo(driver, myDriver) {
       paceDeltaHtml = `<span style="color: ${color};">Δ ${sign}${(diffMs/1000).toFixed(3)}</span>`;
     }
 
-    // Delta Assoluto (Best Lap)
     let myBestTimeRaw = myDriver.besttime || myDriver.btTm;
     let myBestMs = parseTimeToMs(formatLapTime(myBestTimeRaw));
     let theirBestMs = parseTimeToMs(theirBestLap);
@@ -476,7 +464,6 @@ function formatRivalInfo(driver, myDriver) {
     }
   }
 
-  // Costruisce la grafica a blocco con Last e Best incolonnati e Delta allineati
   return `
     <span class="rival-num">${nameStr}</span>
     ${gapHtml}
@@ -487,9 +474,6 @@ function formatRivalInfo(driver, myDriver) {
   `;
 }
 
-// ==========================================
-// UPDATE DASHBOARD & TRASMISSIONE RADIO FULL-HTML
-// ==========================================
 function updateDashboard(driversList) {
   const numInput = document.getElementById('myRaceNumber');
   if (numInput && !selectedDriverId && driversList.length > 0) {
@@ -578,7 +562,6 @@ function updateDashboard(driversList) {
     }
     document.getElementById('driverBehind').innerHTML = stringBehind;
     
-    // TRASMISSIONE AL TELEFONO/LILYGO
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
       const payload = JSON.stringify({
         p: myPos,
@@ -641,9 +624,6 @@ if (currentRaceId) {
   }
 }
 
-// ==========================================
-// TRASMETTITORE IOT (MQTT per LilyGO)
-// ==========================================
 const mqttClient = new Paho.MQTT.Client("broker.hivemq.com", 8884, "PitWall_Web_" + parseInt(Math.random() * 100000));
 let isMqttConnected = false;
 
