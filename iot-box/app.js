@@ -525,17 +525,19 @@ function updateDashboard(driversList) {
     if (myPos === 1) {
       gapText = '+0.000';
     } else if (leaderDriver) {
+      // CONFRONTO BEST LAP PURISSIMO CON SEGNO CORRETTO (Tuo Best - Leader Best)
       let myBestMs = parseTimeToMs(formatLapTime(myDriver.besttime || myDriver.btTm));
       let leaderBestMs = parseTimeToMs(formatLapTime(leaderDriver.besttime || leaderDriver.btTm));
       
       if (myBestMs > 0 && leaderBestMs > 0) {
-        let gapMs = Math.abs(myBestMs - leaderBestMs);
-        gapText = `+${(gapMs / 1000).toFixed(3)}`;
+        let diffMs = myBestMs - leaderBestMs;
+        let sign = diffMs > 0 ? '+' : '';
+        gapText = `${sign}${(diffMs / 1000).toFixed(3)}`;
       } else {
-        gapText = myDriver.difference || myDriver.df ? `+${myDriver.difference || myDriver.df}` : '+0.000';
+        gapText = '+0.000';
       }
     } else {
-      gapText = myDriver.difference || myDriver.df ? `+${myDriver.difference || myDriver.df}` : '+0.000';
+      gapText = '+0.000';
     }
     document.getElementById('gap').innerText = gapText;
 
