@@ -558,26 +558,26 @@ if (currentRaceId) {
 }
 
 // ==========================================
-// TRASMETTITORE IOT (MQTT per LilyGO - Canali Privati)
+// TRASMETTITORE IOT (MQTT per LilyGO - Canali Privati & Status Pairing)
 // ==========================================
 const mqttClient = new Paho.MQTT.Client("broker.hivemq.com", 8884, "PitWall_Web_" + parseInt(Math.random() * 1000));
 let isMqttConnected = false;
-let targetDeviceId = null; // Verrà popolato automaticamente dal MAC della LilyGO
+let targetDeviceId = localStorage.getItem('pit_target_device') || null;
 
 mqttClient.onConnectionLost = function(responseObject) {
-  console.log("Antenna MQTT Disconnessa:", responseObject.errorMessage);
   isMqttConnected = false;
+  updatePairingStatus('disconnected');
   setTimeout(connectMQTT, 5000); 
 };
 
-// Ascolta il canale di pairing per catturare il MAC Address della LilyGO accesa
 mqttClient.onMessageArrived = function(message) {
   if (message.destinationName === "milo/pitboard/config") {
     try {
       const config = JSON.parse(message.payloadString);
-      if (config.deviceId) {
+      if (config.deviceId && !targetDeviceId) {
         targetDeviceId = config.deviceId;
-        console.log("🔗 LilyGO agganciata con successo! Device ID privato:", targetDeviceId);
+        localStorage.setItem('pit_target_device', targetDeviceId);
+        updatePairingStatus('paired');
       }
     } catch(e) {}
   }
@@ -587,16 +587,27 @@ function connectMQTT() {
   mqttClient.connect({
     useSSL: true,
     onSuccess: function() {
-      console.log("✅ Connesso al Broker MQTT! In ascolto del config...");
       isMqttConnected = true;
-      mqttClient.subscribe("milo/pitboard/config"); // Si iscrive al canale di pairing
+      mqttClient.subscribe("milo/pitboard/config"); 
+      if (targetDeviceId) {
+        updatePairingStatus('paired');
+      } else {
+        updatePairingStatus('unpaired');
+      }
+    },
+    onFailure: function() {
+      updatePairingStatus('error');
     }
   });
 }
 
+function updatePairingStatus(status) {
+  console.log("MQTT Pairing Status:", status, targetDeviceId ? `(${targetDeviceId})` : "");
+}
+
 window.sendPitCommand = function(commandText, colorCode) {
   if (!isMqttConnected || !targetDeviceId) {
-    alert("⚠️ Connessione radio non attiva o LilyGO non ancora associata (attendi il pairing)...");
+    alert("⚠️ Dispositivo non associato. Inserisci il seriale o attendi il pairing automatico.");
     return;
   }
 
@@ -606,21 +617,18 @@ window.sendPitCommand = function(commandText, colorCode) {
   });
 
   const message = new Paho.MQTT.Message(payload);
-  message.destinationName = `pitboard/${targetDeviceId}/command`; // Canale privato del MAC
+  message.destinationName = `pitboard/${targetDeviceId}/command`;
   message.retained = false; 
   
   try {
     mqttClient.send(message);
-    console.log("🚩 Comando PitWall Inviato su canale privato:", message.destinationName, payload);
-    
-    document.body.style.border = "4px solid white";
+    document.body.style.border = "4px solid " + colorCode;
     setTimeout(() => { document.body.style.border = "none"; }, 500);
-
   } catch(e) {}
 };
 
 // =========================================================
-// TRASMISSIONE DATI "AD EVENTO" (Canale Privato Live)
+// TRASMISSIONE DATI LIVE (Canale Privato)
 // =========================================================
 let lastSentTelemetry = ""; 
 
@@ -631,7 +639,7 @@ function broadcastTelemetryIfChanged() {
   if (!myDriver) return;
 
   let myPos = parseInt(myDriver.position || myDriver.pos, 10) || 0;
-  let gapText = document.getElementById('gap').innerText;
+  let gapText = document.getElementById('gap').innerText; // Best Lap Delta
   
   let aheadText = "--";
   let behindText = "--";
@@ -654,13 +662,12 @@ function broadcastTelemetryIfChanged() {
 
   if (payload !== lastSentTelemetry) {
     const message = new Paho.MQTT.Message(payload);
-    message.destinationName = `pitboard/${targetDeviceId}/live`; // Canale privato del MAC
+    message.destinationName = `pitboard/${targetDeviceId}/live`; 
     message.retained = false; 
     
     try {
       mqttClient.send(message);
       lastSentTelemetry = payload; 
-      console.log("⚡ Telemetria inviata sul canale privato:", message.destinationName, payload); 
     } catch(e) {}
   }
 }
