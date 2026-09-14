@@ -7,19 +7,17 @@ let sessionTimeLeft = "--:--";
 let myDriverLaps = "-";
 let activeEngine = 'time2race';
 
-// ==========================================
-// PAIRING LOGIC
-// ==========================================
-let currentDeviceId = localStorage.getItem("pitboard_id") || "";
-
 if ('wakeLock' in navigator) {
   navigator.wakeLock.request('screen').catch(console.error);
 }
 
+// ==========================================
+// INIEZIONE GRAFICA: CASELLA NUMERO DI GARA
+// ==========================================
 window.addEventListener('DOMContentLoaded', () => {
   const targetElement = document.getElementById('loadBtn'); 
   if (targetElement && targetElement.parentNode) {
-    const inputStr = `<input type="text" id="myRaceNumber" placeholder="My#" title="Insert your race number" style="width: 50px; max-width: 50px; flex: 0 0 50px; margin-left: 8px; margin-right: 8px; padding: 2px; border-radius: 4px; border: 1px solid #555; background: #222; color: #ffcc00; font-weight: bold; text-align: center; font-size: 0.95rem; box-sizing: border-box;">`;
+    const inputStr = `<input type="text" id="myRaceNumber" placeholder="My#" title="Inserisci il tuo numero per l'Auto-Aggancio in pista" style="width: 50px; max-width: 50px; flex: 0 0 50px; margin-left: 8px; margin-right: 8px; padding: 2px; border-radius: 4px; border: 1px solid #555; background: #222; color: #ffcc00; font-weight: bold; text-align: center; font-size: 0.95rem; box-sizing: border-box;">`;
     targetElement.insertAdjacentHTML('beforebegin', inputStr);
     
     const savedNum = localStorage.getItem('pit_race_number');
@@ -27,53 +25,7 @@ window.addEventListener('DOMContentLoaded', () => {
       document.getElementById('myRaceNumber').value = savedNum;
     }
   }
-
-  if (currentDeviceId !== "") {
-    const inputEl = document.getElementById("deviceIdInput");
-    const statusEl = document.getElementById("pairStatus");
-    if (inputEl) inputEl.value = currentDeviceId;
-    if (statusEl) {
-      statusEl.innerText = "STATUS: PAIRED TO " + currentDeviceId;
-      statusEl.style.color = "#22c55e"; 
-    }
-  }
 });
-
-window.pairDevice = function() {
-  const inputEl = document.getElementById("deviceIdInput");
-  if (!inputEl) return;
-  const input = inputEl.value.trim().toUpperCase();
-  
-  if (input === "") {
-    alert("Please enter a valid Device ID!");
-    return;
-  }
-  
-  currentDeviceId = input;
-  localStorage.setItem("pitboard_id", currentDeviceId);
-  
-  const statusEl = document.getElementById("pairStatus");
-  if (statusEl) {
-    statusEl.innerText = "STATUS: PAIRED TO " + currentDeviceId;
-    statusEl.style.color = "#22c55e";
-  }
-  
-  if (typeof sendConfigToLilyGO === "function") sendConfigToLilyGO();
-};
-
-window.unpairDevice = function() {
-  currentDeviceId = "";
-  localStorage.removeItem("pitboard_id");
-  
-  const inputEl = document.getElementById("deviceIdInput");
-  const statusEl = document.getElementById("pairStatus");
-  
-  if (inputEl) inputEl.value = "";
-  if (statusEl) {
-    statusEl.innerText = "STATUS: UNPAIRED";
-    statusEl.style.color = "#ffcc00";
-  }
-};
 
 function setButtonState(state) {
   const btn = document.getElementById('loadBtn');
@@ -141,6 +93,24 @@ function parseTimeToMs(str) {
   return (secs * 1000) + ms;
 }
 
+function timeStringToSeconds(str) {
+  if (!str) return 0;
+  const parts = str.split(':');
+  if (parts.length < 3) return 0;
+  return (+parts[0]) * 3600 + (+parts[1]) * 60 + (+parts[2]);
+}
+
+function secondsToTimeString(totalSeconds) {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  if (h > 0) {
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  } else {
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+}
+
 function updateBanner() {
   const statusBox = document.getElementById('sessionStatus');
   if (!statusBox) return;
@@ -150,11 +120,6 @@ function updateBanner() {
 function loadNewRace() {
   const inputUrl = document.getElementById('raceLinkInput').value;
   if (!inputUrl) return;
-
-  const keepAliveAudio = document.getElementById('keepAliveAudio');
-  if (keepAliveAudio) {
-    keepAliveAudio.play().catch(e => console.log("Audio background ignorato"));
-  }
 
   setButtonState('connecting');
   
@@ -185,6 +150,9 @@ function loadNewRace() {
   }
 }
 
+// ========================================================
+// Funzione per fermare la sessione e AZZERARE I NUMERI
+// ========================================================
 function stopSession() {
   if (ws) {
     ws.onclose = null; 
@@ -269,6 +237,7 @@ function connectTime2Race() {
 
       let incomingDrivers = payload.drivers || (payload.data ? payload.data.drivers : null);
       if (incomingDrivers && incomingDrivers.length > 0) {
+        
         incomingDrivers.forEach(newD => {
           const idx = lastKnownDrivers.findIndex(oldD => String(getDriverId(oldD)) === String(getDriverId(newD)));
           if (idx !== -1) {
@@ -416,15 +385,9 @@ function formatRivalInfo(driver, myDriver) {
   
   const theirLastTimeRaw = driver.lasttime || driver.lsTm;
   const theirLastLap = formatLapTime(theirLastTimeRaw);
-  
-  const theirBestTimeRaw = driver.besttime || driver.btTm;
-  const theirBestLap = formatLapTime(theirBestTimeRaw);
-  
   const nameStr = num ? `#${num}` : (driver.fullname || driver.nam || driver.nickname || 'Rider').substring(0, 8);
   
   let gapHtml = '';
-  let paceDeltaHtml = '<span style="color: #666;">Δ --</span>';
-  let bestDeltaHtml = '<span style="color: #666;">Δ --</span>';
   
   if (myDriver) {
     let myDiffStr = String(myDriver.difference || myDriver.df || '0');
@@ -441,40 +404,35 @@ function formatRivalInfo(driver, myDriver) {
       let gap = Math.abs(d1 - d2);
       physicalGapText = `GAP +${gap.toFixed(3)}`;
     }
-    gapHtml = `<span style="font-size: 1.1rem; color: #ffcc00; margin-top: 4px; margin-bottom: 4px; font-weight: bold;">${physicalGapText}</span>`;
 
+    let paceDeltaText = '';
     let myLastTimeRaw = myDriver.lasttime || myDriver.lsTm;
-    let myLastMs = parseTimeToMs(formatLapTime(myLastTimeRaw));
-    let theirLastMs = parseTimeToMs(theirLastLap);
-    if (myLastMs > 0 && theirLastMs > 0) {
-      let diffMs = theirLastMs - myLastMs;
+    let myMs = parseTimeToMs(formatLapTime(myLastTimeRaw));
+    let theirMs = parseTimeToMs(theirLastLap);
+    
+    if (myMs > 0 && theirMs > 0) {
+      let diffMs = theirMs - myMs;
       let sign = diffMs > 0 ? '+' : '';
       let color = diffMs > 0 ? '#22c55e' : '#ef4444'; 
-      paceDeltaHtml = `<span style="color: ${color};">Δ ${sign}${(diffMs/1000).toFixed(3)}</span>`;
+      paceDeltaText = `<span style="color: ${color};">Δ ${sign}${(diffMs/1000).toFixed(3)}</span>`;
     }
 
-    let myBestTimeRaw = myDriver.besttime || myDriver.btTm;
-    let myBestMs = parseTimeToMs(formatLapTime(myBestTimeRaw));
-    let theirBestMs = parseTimeToMs(theirBestLap);
-    if (myBestMs > 0 && theirBestMs > 0) {
-      let diffMs = theirBestMs - myBestMs;
-      let sign = diffMs > 0 ? '+' : '';
-      let color = diffMs > 0 ? '#22c55e' : '#ef4444'; 
-      bestDeltaHtml = `<span style="color: ${color};">Δ ${sign}${(diffMs/1000).toFixed(3)}</span>`;
-    }
+    gapHtml = `
+      <span style="font-size: 1.1rem; color: #ffcc00; margin-top: 4px; font-weight: bold;">${physicalGapText}</span>
+      <span style="font-size: 1.1rem; font-weight: bold;">${paceDeltaText}</span>
+    `;
   }
 
   return `
     <span class="rival-num">${nameStr}</span>
+    <span style="font-size: 1.4rem; color: #ccc;">⏱ ${theirLastLap}</span>
     ${gapHtml}
-    <div style="display:flex; flex-direction:column; gap:4px; font-size:1.1rem; font-weight:bold; background:#1a1a1a; padding:6px; border-radius:6px; border:1px solid #333; margin-top:2px; width:100%; min-width:170px;">
-       <span style="color:#ccc; display:flex; justify-content:space-between; align-items:center;"><span>⏱ L: ${theirLastLap}</span> ${paceDeltaHtml}</span>
-       <span style="color:#06b6d4; display:flex; justify-content:space-between; align-items:center;"><span>🔥 B: ${theirBestLap}</span> ${bestDeltaHtml}</span>
-    </div>
   `;
 }
 
 function updateDashboard(driversList) {
+  
+  // LOGICA AUTO-LOCK (Inseguimento automatico numero di gara)
   const numInput = document.getElementById('myRaceNumber');
   if (numInput && !selectedDriverId && driversList.length > 0) {
     const targetNum = numInput.value.trim();
@@ -486,6 +444,8 @@ function updateDashboard(driversList) {
         
         const selectEl = document.getElementById('driverSelect');
         if (selectEl) selectEl.value = selectedDriverId;
+        
+        console.log("🎯 Auto-Lock agganciato! Pilota: #" + targetNum);
         
         if (typeof sendConfigToLilyGO === "function") {
           sendConfigToLilyGO();
@@ -500,13 +460,6 @@ function updateDashboard(driversList) {
     document.getElementById('driverBehind').innerHTML = '--';
     document.getElementById('gap').innerText = '--';
     document.getElementById('myDriverNum').innerText = '--';
-    
-    if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
-      const payload = JSON.stringify({ p: 0, gap: "--", ahead: "--", behind: "--", num: "--", time: "--:--", laps: "-" });
-      const message = new Paho.MQTT.Message(payload);
-      message.destinationName = "pitboard/" + currentDeviceId + "/live";
-      try { mqttClient.send(message); } catch(e) {}
-    }
     return;
   }
 
@@ -521,36 +474,31 @@ function updateDashboard(driversList) {
 
     const leaderDriver = driversList.find(d => parseInt(d.position || d.pos, 10) === 1);
     
-    let gapText = "+0.000";
     if (myPos === 1) {
-      gapText = '+0.000';
+      document.getElementById('gap').innerText = '+0.000';
     } else if (leaderDriver) {
-      // CONFRONTO BEST LAP PURISSIMO CON SEGNO CORRETTO (Tuo Best - Leader Best)
       let myBestMs = parseTimeToMs(formatLapTime(myDriver.besttime || myDriver.btTm));
       let leaderBestMs = parseTimeToMs(formatLapTime(leaderDriver.besttime || leaderDriver.btTm));
       
       if (myBestMs > 0 && leaderBestMs > 0) {
-        let diffMs = myBestMs - leaderBestMs;
-        let sign = diffMs > 0 ? '+' : '';
-        gapText = `${sign}${(diffMs / 1000).toFixed(3)}`;
+        let gapMs = Math.abs(myBestMs - leaderBestMs);
+        document.getElementById('gap').innerText = `+${(gapMs / 1000).toFixed(3)}`;
       } else {
-        gapText = '+0.000';
+        document.getElementById('gap').innerText = myDriver.difference || myDriver.df ? `+${myDriver.difference || myDriver.df}` : '+0.000';
       }
     } else {
-      gapText = '+0.000';
+      document.getElementById('gap').innerText = myDriver.difference || myDriver.df ? `+${myDriver.difference || myDriver.df}` : '+0.000';
     }
-    document.getElementById('gap').innerText = gapText;
 
     const myNum = myDriver.raceno || myDriver.no || '';
-    const myNumText = myNum ? `#${myNum}` : 'ME';
-    document.getElementById('myDriverNum').innerText = myNumText;
+    document.getElementById('myDriverNum').innerText = myNum ? `#${myNum}` : 'ME';
 
     let stringAhead = '--';
     if (myPos > 1) {
       const driverAhead = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos - 1);
       stringAhead = driverAhead ? formatRivalInfo(driverAhead, myDriver) : '--';
     } else if (myPos === 1) {
-      stringAhead = '<span class="rival-num" style="color:#ffcc00">LEADER</span><br><span style="font-size: 1.8rem;">🥇</span>';
+      stringAhead = '<span class="rival-num" style="color:#ffcc00">LEADER</span><span style="font-size: 1.8rem;">🥇</span>';
     }
     document.getElementById('driverAhead').innerHTML = stringAhead;
 
@@ -563,22 +511,6 @@ function updateDashboard(driversList) {
       stringBehind = '<span class="rival-num" style="color:#888">CLEAR</span>';
     }
     document.getElementById('driverBehind').innerHTML = stringBehind;
-    
-    if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
-      const payload = JSON.stringify({
-        p: myPos,
-        gap: gapText,
-        ahead: stringAhead,
-        behind: stringBehind,
-        num: myNumText,       
-        time: sessionTimeLeft,
-        laps: String(myDriverLaps) 
-      });
-      const message = new Paho.MQTT.Message(payload);
-      message.destinationName = "pitboard/" + currentDeviceId + "/live";
-      message.retained = false;
-      try { mqttClient.send(message); } catch(e) {}
-    }
 
   } else {
     document.getElementById('pos').innerText = 'P-';
@@ -586,13 +518,12 @@ function updateDashboard(driversList) {
     document.getElementById('driverBehind').innerHTML = '--';
     document.getElementById('gap').innerText = '--';
     document.getElementById('myDriverNum').innerText = '--';
-    
-    if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
-      const payload = JSON.stringify({ p: 0, gap: "--", ahead: "--", behind: "--", num: "--", time: "--:--", laps: "-" });
-      const message = new Paho.MQTT.Message(payload);
-      message.destinationName = "pitboard/" + currentDeviceId + "/live";
-      try { mqttClient.send(message); } catch(e) {}
-    }
+  }
+
+  // --- TRASMISSIONE AUTOMATICA ---
+  // Subito dopo aver ridisegnato la grafica, dice al trasmettitore: "Controlla se ci sono variazioni e inviale alla moto!"
+  if (typeof broadcastTelemetryIfChanged === "function") {
+    broadcastTelemetryIfChanged();
   }
 }
 
@@ -626,50 +557,46 @@ if (currentRaceId) {
   }
 }
 
-const mqttClient = new Paho.MQTT.Client("broker.hivemq.com", 8884, "PitWall_Web_" + parseInt(Math.random() * 100000));
+// ==========================================
+// TRASMETTITORE IOT (MQTT per LilyGO - Canali Privati)
+// ==========================================
+const mqttClient = new Paho.MQTT.Client("broker.hivemq.com", 8884, "PitWall_Web_" + parseInt(Math.random() * 1000));
 let isMqttConnected = false;
+let targetDeviceId = null; // Verrà popolato automaticamente dal MAC della LilyGO
 
 mqttClient.onConnectionLost = function(responseObject) {
+  console.log("Antenna MQTT Disconnessa:", responseObject.errorMessage);
   isMqttConnected = false;
   setTimeout(connectMQTT, 5000); 
+};
+
+// Ascolta il canale di pairing per catturare il MAC Address della LilyGO accesa
+mqttClient.onMessageArrived = function(message) {
+  if (message.destinationName === "milo/pitboard/config") {
+    try {
+      const config = JSON.parse(message.payloadString);
+      if (config.deviceId) {
+        targetDeviceId = config.deviceId;
+        console.log("🔗 LilyGO agganciata con successo! Device ID privato:", targetDeviceId);
+      }
+    } catch(e) {}
+  }
 };
 
 function connectMQTT() {
   mqttClient.connect({
     useSSL: true,
     onSuccess: function() {
+      console.log("✅ Connesso al Broker MQTT! In ascolto del config...");
       isMqttConnected = true;
-      sendConfigToLilyGO(); 
+      mqttClient.subscribe("milo/pitboard/config"); // Si iscrive al canale di pairing
     }
   });
 }
 
-function sendConfigToLilyGO() {
-  if (!currentRaceId || !selectedDriverId || !isMqttConnected || currentDeviceId === "") return;
-  
-  const payload = JSON.stringify({
-    engine: activeEngine,
-    raceId: currentRaceId,
-    driverId: selectedDriverId
-  });
-
-  const message = new Paho.MQTT.Message(payload);
-  message.destinationName = "pitboard/" + currentDeviceId + "/config"; 
-  message.retained = true; 
-  
-  try {
-    mqttClient.send(message);
-  } catch(e) {}
-}
-
 window.sendPitCommand = function(commandText, colorCode) {
-  if (!isMqttConnected) {
-    alert("⚠️ Radio connection not active. Please wait...");
-    return;
-  }
-  
-  if (currentDeviceId === "") {
-    alert("⚠️ No Device Paired! Please pair your Pitboard in the settings first.");
+  if (!isMqttConnected || !targetDeviceId) {
+    alert("⚠️ Connessione radio non attiva o LilyGO non ancora associata (attendi il pairing)...");
     return;
   }
 
@@ -679,16 +606,63 @@ window.sendPitCommand = function(commandText, colorCode) {
   });
 
   const message = new Paho.MQTT.Message(payload);
-  message.destinationName = "pitboard/" + currentDeviceId + "/command";
+  message.destinationName = `pitboard/${targetDeviceId}/command`; // Canale privato del MAC
   message.retained = false; 
   
   try {
     mqttClient.send(message);
+    console.log("🚩 Comando PitWall Inviato su canale privato:", message.destinationName, payload);
     
     document.body.style.border = "4px solid white";
     setTimeout(() => { document.body.style.border = "none"; }, 500);
 
   } catch(e) {}
 };
+
+// =========================================================
+// TRASMISSIONE DATI "AD EVENTO" (Canale Privato Live)
+// =========================================================
+let lastSentTelemetry = ""; 
+
+function broadcastTelemetryIfChanged() {
+  if (!isMqttConnected || !targetDeviceId || !selectedDriverId || lastKnownDrivers.length === 0) return;
+
+  const myDriver = lastKnownDrivers.find(d => String(getDriverId(d)) === String(selectedDriverId));
+  if (!myDriver) return;
+
+  let myPos = parseInt(myDriver.position || myDriver.pos, 10) || 0;
+  let gapText = document.getElementById('gap').innerText;
+  
+  let aheadText = "--";
+  let behindText = "--";
+  
+  const driverAhead = lastKnownDrivers.find(d => parseInt(d.position || d.pos, 10) === myPos - 1);
+  if (driverAhead) aheadText = "#" + (driverAhead.raceno || driverAhead.no || "");
+  else if (myPos === 1) aheadText = "LEADER";
+
+  const driverBehind = lastKnownDrivers.find(d => parseInt(d.position || d.pos, 10) === myPos + 1);
+  if (driverBehind) behindText = "#" + (driverBehind.raceno || driverBehind.no || "");
+  else behindText = "CLEAR";
+
+  const payload = JSON.stringify({
+    type: "LIVE_DATA",
+    p: myPos,
+    gap: gapText,
+    ahead: aheadText,
+    behind: behindText
+  });
+
+  if (payload !== lastSentTelemetry) {
+    const message = new Paho.MQTT.Message(payload);
+    message.destinationName = `pitboard/${targetDeviceId}/live`; // Canale privato del MAC
+    message.retained = false; 
+    
+    try {
+      mqttClient.send(message);
+      lastSentTelemetry = payload; 
+      console.log("⚡ Telemetria inviata sul canale privato:", message.destinationName, payload); 
+    } catch(e) {}
+  }
+}
 
 connectMQTT();
