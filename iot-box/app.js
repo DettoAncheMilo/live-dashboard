@@ -558,13 +558,12 @@ if (currentRaceId) {
 }
 
 // ==========================================
-// TRASMETTITORE IOT (MQTT per LilyGO - Pairing & Canali Privati)
+// TRASMETTITORE IOT (MQTT per Muretto - Allineato su Porta 1883)
 // ==========================================
-const mqttClient = new Paho.MQTT.Client("broker.hivemq.com", 8884, "PitWall_Web_" + parseInt(Math.random() * 1000));
+const mqttClient = new Paho.MQTT.Client("broker.hivemq.com", 1883, "PitWall_Web_" + parseInt(Math.random() * 1000));
 let isMqttConnected = false;
 let targetDeviceId = localStorage.getItem('pit_target_device') || null;
 
-// Iniezione della casella visiva per il seriale nel Commander
 window.addEventListener('DOMContentLoaded', () => {
   const container = document.getElementById('loadBtn') ? document.getElementById('loadBtn').parentNode : null;
   if (container && !document.getElementById('manualDeviceId')) {
@@ -607,11 +606,12 @@ mqttClient.onMessageArrived = function(message) {
 
 function connectMQTT() {
   mqttClient.connect({
-    useSSL: true,
+    useSSL: false, // Connessione in chiaro sulla porta 1883, identica alla LilyGO
     onSuccess: function() {
       isMqttConnected = true;
       mqttClient.subscribe("milo/pitboard/config"); 
       if (targetDeviceId) updatePairingUI(true);
+      console.log("✅ Muretto connesso in MQTT sulla 1883.");
     },
     onFailure: function() {
       updatePairingUI(false);
@@ -623,7 +623,6 @@ function updatePairingUI(isPaired) {
   const statusEl = document.getElementById('pairStatus');
   if (statusEl) {
     statusEl.innerHTML = isPaired ? "🟢" : "🔴";
-    statusEl.title = isPaired ? `Paired with ${targetDeviceId}` : "Unpaired";
   }
 }
 
