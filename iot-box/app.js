@@ -625,13 +625,13 @@ if (currentRaceId) {
   }
 }
 
-// Connessione MQTT standard sulla porta 1883 compatibile con la LilyGO
+// Connessione MQTT standard in chiaro sulla porta 1883 compatibile con la LilyGO
 const mqttClient = new Paho.MQTT.Client("broker.hivemq.com", 1883, "PitWall_Web_" + parseInt(Math.random() * 100000));
 let isMqttConnected = false;
 
 mqttClient.onConnectionLost = function(responseObject) {
   isMqttConnected = false;
-  setTimeout(connectMQTT, 5000); 
+  setTimeout(connectMQTT, 3000); 
 };
 
 // Ascolta se la LilyGO invia il suo ID per fare il pairing in automatico
