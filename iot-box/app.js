@@ -558,15 +558,33 @@ if (currentRaceId) {
 }
 
 // ==========================================
-// TRASMETTITORE IOT (MQTT per LilyGO - Canali Privati & Status Pairing)
+// TRASMETTITORE IOT (MQTT per LilyGO - Pairing & Canali Privati)
 // ==========================================
 const mqttClient = new Paho.MQTT.Client("broker.hivemq.com", 8884, "PitWall_Web_" + parseInt(Math.random() * 1000));
 let isMqttConnected = false;
 let targetDeviceId = localStorage.getItem('pit_target_device') || null;
 
+// Iniezione della casella visiva per il seriale nel Commander
+window.addEventListener('DOMContentLoaded', () => {
+  const container = document.getElementById('loadBtn') ? document.getElementById('loadBtn').parentNode : null;
+  if (container && !document.getElementById('manualDeviceId')) {
+    const pairingHtml = `<div style="display:inline-flex; align-items:center; margin-left:8px;"><span id="pairStatus" style="font-size:0.8rem; margin-right:4px;">🔴</span><input type="text" id="manualDeviceId" placeholder="PIT-XXXX" value="${targetDeviceId || ''}" title="Inserisci il seriale della LilyGO" style="width: 85px; padding: 2px; border-radius: 4px; border: 1px solid #555; background: #222; color: #22c55e; font-weight: bold; text-align: center;"></div>`;
+    container.insertAdjacentHTML('beforeend', pairingHtml);
+    
+    document.getElementById('manualDeviceId').addEventListener('input', function(e) {
+      const val = e.target.value.trim();
+      if (val.length >= 4) {
+        targetDeviceId = val;
+        localStorage.setItem('pit_target_device', targetDeviceId);
+        updatePairingUI(true);
+      }
+    });
+  }
+});
+
 mqttClient.onConnectionLost = function(responseObject) {
   isMqttConnected = false;
-  updatePairingStatus('disconnected');
+  updatePairingUI(false);
   setTimeout(connectMQTT, 5000); 
 };
 
@@ -574,10 +592,14 @@ mqttClient.onMessageArrived = function(message) {
   if (message.destinationName === "milo/pitboard/config") {
     try {
       const config = JSON.parse(message.payloadString);
-      if (config.deviceId && !targetDeviceId) {
-        targetDeviceId = config.deviceId;
-        localStorage.setItem('pit_target_device', targetDeviceId);
-        updatePairingStatus('paired');
+      if (config.deviceId) {
+        if (!targetDeviceId) {
+          targetDeviceId = config.deviceId;
+          localStorage.setItem('pit_target_device', targetDeviceId);
+          const inputField = document.getElementById('manualDeviceId');
+          if (inputField) inputField.value = targetDeviceId;
+        }
+        updatePairingUI(true);
       }
     } catch(e) {}
   }
@@ -589,25 +611,31 @@ function connectMQTT() {
     onSuccess: function() {
       isMqttConnected = true;
       mqttClient.subscribe("milo/pitboard/config"); 
-      if (targetDeviceId) {
-        updatePairingStatus('paired');
-      } else {
-        updatePairingStatus('unpaired');
-      }
+      if (targetDeviceId) updatePairingUI(true);
     },
     onFailure: function() {
-      updatePairingStatus('error');
+      updatePairingUI(false);
     }
   });
 }
 
-function updatePairingStatus(status) {
-  console.log("MQTT Pairing Status:", status, targetDeviceId ? `(${targetDeviceId})` : "");
+function updatePairingUI(isPaired) {
+  const statusEl = document.getElementById('pairStatus');
+  if (statusEl) {
+    statusEl.innerHTML = isPaired ? "🟢" : "🔴";
+    statusEl.title = isPaired ? `Paired with ${targetDeviceId}` : "Unpaired";
+  }
 }
 
 window.sendPitCommand = function(commandText, colorCode) {
+  const manualInput = document.getElementById('manualDeviceId');
+  if (manualInput && manualInput.value.trim() !== "") {
+    targetDeviceId = manualInput.value.trim();
+    localStorage.setItem('pit_target_device', targetDeviceId);
+  }
+
   if (!isMqttConnected || !targetDeviceId) {
-    alert("⚠️ Dispositivo non associato. Inserisci il seriale o attendi il pairing automatico.");
+    alert("⚠️ Inserisci il seriale della LilyGO (es. PIT-B870) nella casella in alto!");
     return;
   }
 
@@ -627,19 +655,21 @@ window.sendPitCommand = function(commandText, colorCode) {
   } catch(e) {}
 };
 
-// =========================================================
-// TRASMISSIONE DATI LIVE (Canale Privato)
-// =========================================================
 let lastSentTelemetry = ""; 
 
 function broadcastTelemetryIfChanged() {
+  const manualInput = document.getElementById('manualDeviceId');
+  if (manualInput && manualInput.value.trim() !== "") {
+    targetDeviceId = manualInput.value.trim();
+  }
+
   if (!isMqttConnected || !targetDeviceId || !selectedDriverId || lastKnownDrivers.length === 0) return;
 
   const myDriver = lastKnownDrivers.find(d => String(getDriverId(d)) === String(selectedDriverId));
   if (!myDriver) return;
 
   let myPos = parseInt(myDriver.position || myDriver.pos, 10) || 0;
-  let gapText = document.getElementById('gap').innerText; // Best Lap Delta
+  let gapText = document.getElementById('gap').innerText;
   
   let aheadText = "--";
   let behindText = "--";
@@ -653,7 +683,6 @@ function broadcastTelemetryIfChanged() {
   else behindText = "CLEAR";
 
   const payload = JSON.stringify({
-    type: "LIVE_DATA",
     p: myPos,
     gap: gapText,
     ahead: aheadText,
