@@ -8,9 +8,10 @@ let myDriverLaps = "-";
 let activeEngine = 'time2race';
 
 // ==========================================
-// PAIRING LOGIC & UI (MANUALE)
+// PAIRING LOGIC & UI (RIGOROSAMENTE MANUALE)
 // ==========================================
-let currentDeviceId = localStorage.getItem("pitboard_id") || "";
+// Inizia SEMPRE disconnesso, ignorando la connessione attiva della sessione precedente
+let currentDeviceId = ""; 
 let isMqttConnected = false;
 
 if ('wakeLock' in navigator) {
@@ -47,20 +48,25 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  if (currentDeviceId !== "") {
+  // Legge la memoria SOLO per pre-compilare la casella di testo (comodità), ma NON si connette
+  const savedDeviceId = localStorage.getItem("pitboard_id");
+  if (savedDeviceId) {
     const inputEl = document.getElementById("deviceIdInput");
-    if (inputEl) inputEl.value = currentDeviceId;
+    if (inputEl) inputEl.value = savedDeviceId;
   }
+  
+  // Forza lo stato iniziale a UNPAIRED
   updatePairingUI();
 });
 
+// Questa funzione viene chiamata SOLO quando si preme il tasto PAIR
 window.pairDevice = function() {
   const inputEl = document.getElementById("deviceIdInput");
   if (!inputEl) return;
   const input = inputEl.value.trim().toUpperCase();
   
   if (input === "") {
-    alert("Please enter a valid Device ID!");
+    alert("Inserisci un Device ID valido prima di fare Pair!");
     return;
   }
   
