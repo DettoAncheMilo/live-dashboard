@@ -8,7 +8,7 @@ let myDriverLaps = "-";
 let activeEngine = 'time2race';
 
 // ==========================================
-// PAIRING LOGIC & UI
+// PAIRING LOGIC & UI (MANUALE)
 // ==========================================
 let currentDeviceId = localStorage.getItem("pitboard_id") || "";
 let isMqttConnected = false;
@@ -632,7 +632,7 @@ if (currentRaceId) {
 }
 
 // ==========================================
-// MQTT CONNECTION (Solo accoppiamento MANUALE per multi-utenza)
+// MQTT CONNECTION (Manuale al 100% - Nessun Auto-Pairing)
 // ==========================================
 const mqttClient = new Paho.MQTT.Client("broker.hivemq.com", 8884, "/mqtt", "PitWall_Web_" + parseInt(Math.random() * 100000));
 
@@ -644,8 +644,7 @@ mqttClient.onConnectionLost = function(responseObject) {
 };
 
 mqttClient.onMessageArrived = function(message) {
-  // Funzione lasciata volutamente vuota per ora: 
-  // Rimosso l'auto-pairing che forzava la connessione al primo dispositivo online
+  // Lasciato vuoto intenzionalmente per impedire qualsiasi auto-associazione
 };
 
 function connectMQTT() {
@@ -655,9 +654,7 @@ function connectMQTT() {
     onSuccess: function() {
       isMqttConnected = true;
       console.log("✅ Radio MQTT Connessa via WebSockets!");
-      // Rimosso il subscribe al topic pubblico "milo/pitboard/config"
       updatePairingUI(); 
-      sendConfigToLilyGO(); 
     },
     onFailure: function(err) {
       isMqttConnected = false;
@@ -693,7 +690,7 @@ window.sendPitCommand = function(commandText, colorCode) {
   }
   
   if (currentDeviceId === "") {
-    alert("⚠️ Nessun dispositivo associato! Inserisci il seriale (es. PIT-B870) nei SETTINGS e fai PAIR.");
+    alert("⚠️ Nessun dispositivo associato! Inserisci il seriale nei SETTINGS e fai PAIR.");
     return;
   }
 
