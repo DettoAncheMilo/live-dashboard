@@ -8,9 +8,9 @@ let myDriverLaps = "-";
 let activeEngine = 'time2race';
 
 // ==========================================
-// PAIRING LOGIC & UI (MANUALE)
+// PAIRING LOGIC & UI (RIGOROSAMENTE MANUALE)
 // ==========================================
-let currentDeviceId = localStorage.getItem("pitboard_id") || "";
+let currentDeviceId = ""; 
 let isMqttConnected = false;
 
 if ('wakeLock' in navigator) {
@@ -158,6 +158,11 @@ function updateBanner() {
 function loadNewRace() {
   const inputUrl = document.getElementById('raceLinkInput').value;
   if (!inputUrl) return;
+
+  const keepAliveAudio = document.getElementById('keepAliveAudio');
+  if (keepAliveAudio) {
+    keepAliveAudio.play().catch(e => console.log("Audio background ignorato"));
+  }
 
   setButtonState('connecting');
   
@@ -416,10 +421,13 @@ async function connectMylaps(sessionId) {
 function formatRivalInfo(driver, myDriver) {
   if (!driver) return '--';
   const num = driver.raceno || driver.no || '';
+  
   const theirLastTimeRaw = driver.lasttime || driver.lsTm;
   const theirLastLap = formatLapTime(theirLastTimeRaw);
+  
   const theirBestTimeRaw = driver.besttime || driver.btTm;
   const theirBestLap = formatLapTime(theirBestTimeRaw);
+  
   const nameStr = num ? `#${num}` : (driver.fullname || driver.nam || driver.nickname || 'Rider').substring(0, 8);
   
   let gapHtml = '';
@@ -427,8 +435,8 @@ function formatRivalInfo(driver, myDriver) {
   let bestDeltaHtml = '<span style="color: #666;">Δ --</span>';
   
   if (myDriver) {
-    let myDiffStr = String(myDriver.difference || myDriver.df || '0');
-    let theirDiffStr = String(driver.difference || driver.df || '0');
+    let myDiffStr = String(myDriver.gap || myDriver.difference || myDriver.df || '0');
+    let theirDiffStr = String(driver.gap || driver.difference || driver.df || '0');
     let isLapped = myDiffStr.toLowerCase().includes('lap') || theirDiffStr.toLowerCase().includes('lap') || 
                    myDiffStr.toLowerCase().includes('gir') || theirDiffStr.toLowerCase().includes('gir');
                    
@@ -491,16 +499,14 @@ function updateDashboard(driversList) {
   }
 
   if (!selectedDriverId) {
-    // Schermata vuota Muretto
     document.getElementById('pos').innerText = 'P-';
     document.getElementById('driverAhead').innerHTML = '--';
     document.getElementById('driverBehind').innerHTML = '--';
     document.getElementById('gap').innerText = '--';
     document.getElementById('myDriverNum').innerText = '--';
     
-    // Schermata vuota LilyGO
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
-      const payload = JSON.stringify({ p: "", gap: "--", ahead: "--", gap_a: "--", behind: "--", gap_b: "--", num: "--" });
+      const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", gap_a: "--", behind: "--", gap_b: "--", num: "--" });
       const message = new Paho.MQTT.Message(payload);
       message.destinationName = "pitboard/" + currentDeviceId + "/live";
       try { mqttClient.send(message); } catch(e) {}
@@ -514,8 +520,8 @@ function updateDashboard(driversList) {
     myDriverLaps = myDriver.laps || '-';
     updateBanner();
 
-    let myPos = parseInt(myDriver.position || myDriver.pos, 10);
-    document.getElementById('pos').innerText = `P${myPos || '-'}`;
+    let myPos = parseInt(myDriver.position || myDriver.pos, 10) || "-";
+    document.getElementById('pos').innerText = `P${myPos}`;
 
     const leaderDriver = driversList.find(d => parseInt(d.position || d.pos, 10) === 1);
     
@@ -553,8 +559,8 @@ function updateDashboard(driversList) {
       mqttAhead = driverAhead ? "#" + (driverAhead.raceno || driverAhead.no || "") : '--';
       
       if (driverAhead) {
-        let myDiffStr = String(myDriver.difference || myDriver.df || '0');
-        let theirDiffStr = String(driverAhead.difference || driverAhead.df || '0');
+        let myDiffStr = String(myDriver.gap || myDriver.difference || myDriver.df || '0');
+        let theirDiffStr = String(driverAhead.gap || driverAhead.difference || driverAhead.df || '0');
         if (myDiffStr.toLowerCase().includes('lap') || theirDiffStr.toLowerCase().includes('lap') || myDiffStr.toLowerCase().includes('gir')) {
           mqttAheadGap = "LAPPED";
         } else {
@@ -580,8 +586,8 @@ function updateDashboard(driversList) {
       stringBehind = formatRivalInfo(driverBehind, myDriver);
       mqttBehind = "#" + (driverBehind.raceno || driverBehind.no || "");
       
-      let myDiffStr = String(myDriver.difference || myDriver.df || '0');
-      let theirDiffStr = String(driverBehind.difference || driverBehind.df || '0');
+      let myDiffStr = String(myDriver.gap || myDriver.difference || myDriver.df || '0');
+      let theirDiffStr = String(driverBehind.gap || driverBehind.difference || driverBehind.df || '0');
       if (myDiffStr.toLowerCase().includes('lap') || theirDiffStr.toLowerCase().includes('lap') || myDiffStr.toLowerCase().includes('gir')) {
         mqttBehindGap = "LAPPED";
       } else {
@@ -595,8 +601,6 @@ function updateDashboard(driversList) {
     }
     document.getElementById('driverBehind').innerHTML = stringBehind;
     
-    // --- INVIO PULITO ALLA LILYGO ---
-    // String(myPos) risolve il bug della posizione su Arduino (P--)
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
       const payload = JSON.stringify({
         p: String(myPos),
@@ -621,7 +625,7 @@ function updateDashboard(driversList) {
     document.getElementById('myDriverNum').innerText = '--';
     
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
-      const payload = JSON.stringify({ p: "", gap: "--", ahead: "--", gap_a: "--", behind: "--", gap_b: "--", num: "--" });
+      const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", gap_a: "--", behind: "--", gap_b: "--", num: "--" });
       const message = new Paho.MQTT.Message(payload);
       message.destinationName = "pitboard/" + currentDeviceId + "/live";
       try { mqttClient.send(message); } catch(e) {}
