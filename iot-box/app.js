@@ -8,7 +8,7 @@ let myDriverLaps = "-";
 let activeEngine = 'time2race';
 
 // ==========================================
-// PAIRING LOGIC & UI (RIGOROSAMENTE MANUALE)
+// PAIRING LOGIC & UI
 // ==========================================
 let currentDeviceId = ""; 
 let isMqttConnected = false;
@@ -458,7 +458,6 @@ function formatRivalInfo(driver, myDriver) {
     let isLapped = myDiffStr.toLowerCase().includes('lap') || theirDiffStr.toLowerCase().includes('lap') || 
                    myDiffStr.toLowerCase().includes('gir') || theirDiffStr.toLowerCase().includes('gir');
                    
-    // Logica MotoGP: - davanti, + dietro
     let myPos = parseInt(myDriver.position || myDriver.pos, 10);
     let theirPos = parseInt(driver.position || driver.pos, 10);
     let prefix = (theirPos < myPos) ? "-" : "+";
@@ -552,18 +551,16 @@ function updateDashboard(driversList) {
     if (myPos === 1) {
       gapText = '+0.000';
     } else if (leaderDriver) {
-      // Priorità al distacco ufficiale di gara
       let officialDiff = myDriver.difference || myDriver.df || myDriver.gap;
       if (officialDiff && String(officialDiff).trim() !== '' && String(officialDiff) !== '0') {
         let cleanDiff = String(officialDiff).replace('+', '').trim();
         gapText = `+${cleanDiff}`;
       } else {
-        // Fallback sul delta dei Best Lap
         let myBestMs = parseTimeToMs(formatLapTime(myDriver.besttime || myDriver.btTm));
         let leaderBestMs = parseTimeToMs(formatLapTime(leaderDriver.besttime || leaderDriver.btTm));
         
         if (myBestMs > 0 && leaderBestMs > 0) {
-          let diffMs = myBestMs - leaderBestMs; // Se sei più veloce è negativo
+          let diffMs = myBestMs - leaderBestMs;
           let sign = diffMs > 0 ? '+' : '';
           gapText = `${sign}${(diffMs / 1000).toFixed(3)}`;
         } else {
@@ -589,8 +586,8 @@ function updateDashboard(driversList) {
     let mqttAheadGapBL = '--';
     let mqttAheadTimeLL = '--:--';
     let mqttAheadTimeBL = '--:--';
-    let c_a = 0;   // Colore Last Lap
-    let c_a_b = 0; // Colore Best Lap
+    let c_a = 0;   
+    let c_a_b = 0; 
 
     if (myPos > 1) {
       const driverAhead = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos - 1);
@@ -607,20 +604,22 @@ function updateDashboard(driversList) {
         let myDiffStr = String(myDriver.gap || myDriver.difference || myDriver.df || '0');
         let theirDiffStr = String(driverAhead.gap || driverAhead.difference || driverAhead.df || '0');
         
-        // Logica MotoGP (- davanti)
         if (myDiffStr.toLowerCase().includes('lap') || theirDiffStr.toLowerCase().includes('lap') || myDiffStr.toLowerCase().includes('gir')) {
           mqttAheadGap = "LAPPED";
+          mqttAheadGapBL = "LAPPED";
         } else {
-          let d1 = parseFloat(myDiffStr.replace('+', '').replace(',', '.')) || 0;
-          let d2 = parseFloat(theirDiffStr.replace('+', '').replace(',', '.')) || 0;
-          mqttAheadGap = "-" + Math.abs(d1 - d2).toFixed(3);
+          // CALCOLO PURO DEL GAP LAST LAP
+          if (myLastMs > 0 && theirLastMs > 0) {
+            let diffMs = theirLastMs - myLastMs; 
+            mqttAheadGap = (diffMs > 0 ? "+" : "") + (diffMs / 1000).toFixed(3);
+          }
+          // CALCOLO PURO DEL GAP BEST LAP
+          if (myBestMs > 0 && theirBestMs > 0) {
+            let diffMs = theirBestMs - myBestMs; 
+            mqttAheadGapBL = (diffMs > 0 ? "+" : "") + (diffMs / 1000).toFixed(3);
+          }
         }
         
-        if(myBestMs > 0 && theirBestMs > 0) {
-           mqttAheadGapBL = "-" + (Math.abs(myBestMs - theirBestMs)/1000).toFixed(3);
-        }
-
-        // Colori: 1 Verde (Tu più veloce), 2 Rosso (Lui più veloce)
         if (myLastMs > 0 && theirLastMs > 0) { c_a = (myLastMs <= theirLastMs) ? 1 : 2; }
         if (myBestMs > 0 && theirBestMs > 0) { c_a_b = (myBestMs <= theirBestMs) ? 1 : 2; }
       }
@@ -637,8 +636,8 @@ function updateDashboard(driversList) {
     let mqttBehindGapBL = '--';
     let mqttBehindTimeLL = '--:--';
     let mqttBehindTimeBL = '--:--';
-    let c_b = 0;   // Colore Last Lap
-    let c_b_b = 0; // Colore Best Lap
+    let c_b = 0;   
+    let c_b_b = 0; 
 
     const driverBehind = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos + 1);
     
@@ -654,20 +653,22 @@ function updateDashboard(driversList) {
       let myDiffStr = String(myDriver.gap || myDriver.difference || myDriver.df || '0');
       let theirDiffStr = String(driverBehind.gap || driverBehind.difference || driverBehind.df || '0');
       
-      // Logica MotoGP (+ dietro)
       if (myDiffStr.toLowerCase().includes('lap') || theirDiffStr.toLowerCase().includes('lap') || myDiffStr.toLowerCase().includes('gir')) {
         mqttBehindGap = "LAPPED";
+        mqttBehindGapBL = "LAPPED";
       } else {
-        let d1 = parseFloat(myDiffStr.replace('+', '').replace(',', '.')) || 0;
-        let d2 = parseFloat(theirDiffStr.replace('+', '').replace(',', '.')) || 0;
-        mqttBehindGap = "+" + Math.abs(d1 - d2).toFixed(3);
-      }
-      
-      if(myBestMs > 0 && theirBestMs > 0) {
-         mqttBehindGapBL = "+" + (Math.abs(myBestMs - theirBestMs)/1000).toFixed(3);
+        // CALCOLO PURO DEL GAP LAST LAP
+        if (myLastMs > 0 && theirLastMs > 0) {
+          let diffMs = theirLastMs - myLastMs; 
+          mqttBehindGap = (diffMs > 0 ? "+" : "") + (diffMs / 1000).toFixed(3);
+        }
+        // CALCOLO PURO DEL GAP BEST LAP
+        if (myBestMs > 0 && theirBestMs > 0) {
+          let diffMs = theirBestMs - myBestMs; 
+          mqttBehindGapBL = (diffMs > 0 ? "+" : "") + (diffMs / 1000).toFixed(3);
+        }
       }
 
-      // Colori: 1 Verde (Tu più veloce), 2 Rosso (Lui più veloce)
       if (myLastMs > 0 && theirLastMs > 0) { c_b = (myLastMs <= theirLastMs) ? 1 : 2; }
       if (myBestMs > 0 && theirBestMs > 0) { c_b_b = (myBestMs <= theirBestMs) ? 1 : 2; }
 
