@@ -74,6 +74,15 @@ window.pairDevice = function() {
 };
 
 window.unpairDevice = function() {
+  // PRIMA di scollegarsi, spara il comando di azzeramento totale alla LilyGO
+  if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
+    const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", gap_a: "--", behind: "--", gap_b: "--", num: "--" });
+    const message = new Paho.MQTT.Message(payload);
+    message.destinationName = "pitboard/" + currentDeviceId + "/live";
+    try { mqttClient.send(message); } catch(e) {}
+  }
+
+  // ORA può dimenticarsi il dispositivo
   currentDeviceId = "";
   localStorage.removeItem("pitboard_id");
   
@@ -194,6 +203,14 @@ function loadNewRace() {
 }
 
 function stopSession() {
+  // PRIMA di chiudere la sessione, azzera la LilyGO
+  if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
+    const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", gap_a: "--", behind: "--", gap_b: "--", num: "--" });
+    const message = new Paho.MQTT.Message(payload);
+    message.destinationName = "pitboard/" + currentDeviceId + "/live";
+    try { mqttClient.send(message); } catch(e) {}
+  }
+
   if (ws) {
     ws.onclose = null; 
     ws.onerror = null; 
