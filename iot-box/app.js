@@ -8,12 +8,31 @@ let myDriverLaps = "-";
 let activeEngine = 'time2race';
 
 // ==========================================
-// PAIRING LOGIC
+// PAIRING LOGIC & UI
 // ==========================================
 let currentDeviceId = localStorage.getItem("pitboard_id") || "";
+let isMqttConnected = false;
 
 if ('wakeLock' in navigator) {
   navigator.wakeLock.request('screen').catch(console.error);
+}
+
+function updatePairingUI() {
+  const statusEl = document.getElementById("pairStatus");
+  if (!statusEl) return;
+  
+  if (currentDeviceId === "") {
+    statusEl.innerText = "STATUS: UNPAIRED";
+    statusEl.style.color = "#ffcc00"; // Giallo
+  } else {
+    if (isMqttConnected) {
+      statusEl.innerText = "STATUS: PAIRED TO " + currentDeviceId + " (RADIO 🟢)";
+      statusEl.style.color = "#22c55e"; // Verde
+    } else {
+      statusEl.innerText = "STATUS: PAIRED TO " + currentDeviceId + " (RADIO 🔴)";
+      statusEl.style.color = "#ef4444"; // Rosso
+    }
+  }
 }
 
 window.addEventListener('DOMContentLoaded', () => {
@@ -30,13 +49,9 @@ window.addEventListener('DOMContentLoaded', () => {
 
   if (currentDeviceId !== "") {
     const inputEl = document.getElementById("deviceIdInput");
-    const statusEl = document.getElementById("pairStatus");
     if (inputEl) inputEl.value = currentDeviceId;
-    if (statusEl) {
-      statusEl.innerText = "STATUS: PAIRED TO " + currentDeviceId;
-      statusEl.style.color = "#22c55e"; 
-    }
   }
+  updatePairingUI();
 });
 
 window.pairDevice = function() {
@@ -52,12 +67,7 @@ window.pairDevice = function() {
   currentDeviceId = input;
   localStorage.setItem("pitboard_id", currentDeviceId);
   
-  const statusEl = document.getElementById("pairStatus");
-  if (statusEl) {
-    statusEl.innerText = "STATUS: PAIRED TO " + currentDeviceId;
-    statusEl.style.color = "#22c55e";
-  }
-  
+  updatePairingUI();
   if (typeof sendConfigToLilyGO === "function") sendConfigToLilyGO();
 };
 
@@ -66,13 +76,9 @@ window.unpairDevice = function() {
   localStorage.removeItem("pitboard_id");
   
   const inputEl = document.getElementById("deviceIdInput");
-  const statusEl = document.getElementById("pairStatus");
-  
   if (inputEl) inputEl.value = "";
-  if (statusEl) {
-    statusEl.innerText = "STATUS: UNPAIRED";
-    statusEl.style.color = "#ffcc00";
-  }
+  
+  updatePairingUI();
 };
 
 function setButtonState(state) {
@@ -625,17 +631,20 @@ if (currentRaceId) {
   }
 }
 
-// Connessione MQTT per il BROWSER (DEVE usare WebSockets su porta 8884 e SSL)
-const mqttClient = new Paho.MQTT.Client("broker.hivemq.com", 8884, "PitWall_Web_" + parseInt(Math.random() * 100000));
-let isMqttConnected = false;
+// ==========================================
+// MQTT CONNECTION (Corretta con percorso "/mqtt")
+// ==========================================
+// IMPORTANTE: il browser DEVE usare il percorso "/mqtt" per collegarsi a HiveMQ, 
+// a differenza del TCP nudo che usa la LilyGO.
+const mqttClient = new Paho.MQTT.Client("broker.hivemq.com", 8884, "/mqtt", "PitWall_Web_" + parseInt(Math.random() * 100000));
 
 mqttClient.onConnectionLost = function(responseObject) {
   isMqttConnected = false;
   console.log("⚠️ Connessione MQTT persa. Riconnessione in corso...");
+  updatePairingUI(); // Mostrerà il pallino Rosso
   setTimeout(connectMQTT, 3000); 
 };
 
-// Ascolta se la LilyGO invia il suo ID per fare il pairing in automatico
 mqttClient.onMessageArrived = function(message) {
   if (message.destinationName === "milo/pitboard/config") {
     try {
@@ -644,12 +653,8 @@ mqttClient.onMessageArrived = function(message) {
         currentDeviceId = config.deviceId;
         localStorage.setItem("pitboard_id", currentDeviceId);
         const inputEl = document.getElementById("deviceIdInput");
-        const statusEl = document.getElementById("pairStatus");
         if (inputEl) inputEl.value = currentDeviceId;
-        if (statusEl) {
-          statusEl.innerText = "STATUS: PAIRED TO " + currentDeviceId;
-          statusEl.style.color = "#22c55e";
-        }
+        updatePairingUI(); // Mostrerà il pallino Verde
       }
     } catch(e) {}
   }
@@ -657,16 +662,19 @@ mqttClient.onMessageArrived = function(message) {
 
 function connectMQTT() {
   mqttClient.connect({
-    useSSL: true, // Fondamentale per i browser web (connessione sicura wss://)
+    useSSL: true, // Sicurezza obbligatoria per le pagine web
+    timeout: 10,
     onSuccess: function() {
       isMqttConnected = true;
       console.log("✅ Radio MQTT Connessa via WebSockets!");
       mqttClient.subscribe("milo/pitboard/config");
+      updatePairingUI(); // Passa da Rosso a Verde se hai il seriale
       sendConfigToLilyGO(); 
     },
     onFailure: function(err) {
       isMqttConnected = false;
       console.log("❌ Fallita connessione MQTT:", err);
+      updatePairingUI(); // Mostrerà il pallino Rosso
       setTimeout(connectMQTT, 5000);
     }
   });
@@ -692,12 +700,12 @@ function sendConfigToLilyGO() {
 
 window.sendPitCommand = function(commandText, colorCode) {
   if (!isMqttConnected) {
-    alert("⚠️ Radio connection not active. Attendimi qualche secondo che si riconnetta al broker!");
+    alert("⚠️ La connessione Radio è disattivata (Pallino Rosso). Attendi la connessione al server.");
     return;
   }
   
   if (currentDeviceId === "") {
-    alert("⚠️ No Device Paired! Please pair your Pitboard in the settings first.");
+    alert("⚠️ Nessun dispositivo associato! Inserisci il seriale (es. PIT-B870) e fai PAIR.");
     return;
   }
 
