@@ -8,10 +8,9 @@ let myDriverLaps = "-";
 let activeEngine = 'time2race';
 
 // ==========================================
-// PAIRING LOGIC & UI (RIGOROSAMENTE MANUALE)
+// PAIRING LOGIC & UI (MANUALE)
 // ==========================================
-// Inizia SEMPRE disconnesso, ignorando la connessione attiva della sessione precedente
-let currentDeviceId = ""; 
+let currentDeviceId = localStorage.getItem("pitboard_id") || "";
 let isMqttConnected = false;
 
 if ('wakeLock' in navigator) {
@@ -48,25 +47,20 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Legge la memoria SOLO per pre-compilare la casella di testo (comodità), ma NON si connette
-  const savedDeviceId = localStorage.getItem("pitboard_id");
-  if (savedDeviceId) {
+  if (currentDeviceId !== "") {
     const inputEl = document.getElementById("deviceIdInput");
-    if (inputEl) inputEl.value = savedDeviceId;
+    if (inputEl) inputEl.value = currentDeviceId;
   }
-  
-  // Forza lo stato iniziale a UNPAIRED
   updatePairingUI();
 });
 
-// Questa funzione viene chiamata SOLO quando si preme il tasto PAIR
 window.pairDevice = function() {
   const inputEl = document.getElementById("deviceIdInput");
   if (!inputEl) return;
   const input = inputEl.value.trim().toUpperCase();
   
   if (input === "") {
-    alert("Inserisci un Device ID valido prima di fare Pair!");
+    alert("Please enter a valid Device ID!");
     return;
   }
   
@@ -557,30 +551,37 @@ function updateDashboard(driversList) {
     document.getElementById('myDriverNum').innerText = myNumText;
 
     let stringAhead = '--';
+    let mqttAhead = '--'; // Testo pulito per la LilyGO
     if (myPos > 1) {
       const driverAhead = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos - 1);
       stringAhead = driverAhead ? formatRivalInfo(driverAhead, myDriver) : '--';
+      mqttAhead = driverAhead ? "#" + (driverAhead.raceno || driverAhead.no || "") : '--';
     } else if (myPos === 1) {
       stringAhead = '<span class="rival-num" style="color:#ffcc00">LEADER</span><br><span style="font-size: 1.8rem;">🥇</span>';
+      mqttAhead = "LEADER";
     }
     document.getElementById('driverAhead').innerHTML = stringAhead;
 
     let stringBehind = '--';
+    let mqttBehind = '--'; // Testo pulito per la LilyGO
     const driverBehind = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos + 1);
     
     if (driverBehind) {
       stringBehind = formatRivalInfo(driverBehind, myDriver);
+      mqttBehind = "#" + (driverBehind.raceno || driverBehind.no || "");
     } else if (myPos > 0 && driversList.length > 0) {
       stringBehind = '<span class="rival-num" style="color:#888">CLEAR</span>';
+      mqttBehind = "CLEAR";
     }
     document.getElementById('driverBehind').innerHTML = stringBehind;
     
+    // Invia alla LilyGO SOLO il pacchetto leggero e pulito (Senza HTML)
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
       const payload = JSON.stringify({
         p: myPos,
         gap: gapText,
-        ahead: stringAhead,
-        behind: stringBehind,
+        ahead: mqttAhead,
+        behind: mqttBehind,
         num: myNumText,      
         time: sessionTimeLeft,
         laps: String(myDriverLaps) 
