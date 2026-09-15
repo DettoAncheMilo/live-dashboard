@@ -71,6 +71,11 @@ window.pairDevice = function() {
   
   updatePairingUI();
   if (typeof sendConfigToLilyGO === "function") sendConfigToLilyGO();
+
+  // NOVITÀ: Se abbiamo già dei dati di gara caricati, li spara subito alla LilyGO appena associata!
+  if (lastKnownDrivers.length > 0) {
+    updateDashboard(lastKnownDrivers);
+  }
 };
 
 window.unpairDevice = function() {
