@@ -78,9 +78,8 @@ window.pairDevice = function() {
 };
 
 window.unpairDevice = function() {
-  // Reset profondo con tutte le nuove variabili
   if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
-    const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", gap_a: "--", gap_a_bl: "--", time_a_ll: "--:--", time_a_bl: "--:--", behind: "--", gap_b: "--", gap_b_bl: "--", time_b_ll: "--:--", time_b_bl: "--:--", num: "--" });
+    const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", gap_a: "--", gap_a_bl: "--", time_a_ll: "--:--", time_a_bl: "--:--", behind: "--", gap_b: "--", gap_b_bl: "--", time_b_ll: "--:--", time_b_bl: "--:--", num: "--", ca: 0, cb: 0, cab: 0, cbb: 0 });
     const message = new Paho.MQTT.Message(payload);
     message.destinationName = "pitboard/" + currentDeviceId + "/live";
     try { mqttClient.send(message); } catch(e) {}
@@ -206,9 +205,8 @@ function loadNewRace() {
 }
 
 function stopSession() {
-  // Reset profondo con tutte le nuove variabili
   if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
-    const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", gap_a: "--", gap_a_bl: "--", time_a_ll: "--:--", time_a_bl: "--:--", behind: "--", gap_b: "--", gap_b_bl: "--", time_b_ll: "--:--", time_b_bl: "--:--", num: "--" });
+    const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", gap_a: "--", gap_a_bl: "--", time_a_ll: "--:--", time_a_bl: "--:--", behind: "--", gap_b: "--", gap_b_bl: "--", time_b_ll: "--:--", time_b_bl: "--:--", num: "--", ca: 0, cb: 0, cab: 0, cbb: 0 });
     const message = new Paho.MQTT.Message(payload);
     message.destinationName = "pitboard/" + currentDeviceId + "/live";
     try { mqttClient.send(message); } catch(e) {}
@@ -460,6 +458,11 @@ function formatRivalInfo(driver, myDriver) {
     let isLapped = myDiffStr.toLowerCase().includes('lap') || theirDiffStr.toLowerCase().includes('lap') || 
                    myDiffStr.toLowerCase().includes('gir') || theirDiffStr.toLowerCase().includes('gir');
                    
+    // Logica MotoGP: - davanti, + dietro
+    let myPos = parseInt(myDriver.position || myDriver.pos, 10);
+    let theirPos = parseInt(driver.position || driver.pos, 10);
+    let prefix = (theirPos < myPos) ? "-" : "+";
+
     let physicalGapText = '';
     if (isLapped) {
       physicalGapText = 'LAPPED';
@@ -467,7 +470,7 @@ function formatRivalInfo(driver, myDriver) {
       let d1 = parseFloat(myDiffStr.replace('+', '').replace(',', '.')) || 0;
       let d2 = parseFloat(theirDiffStr.replace('+', '').replace(',', '.')) || 0;
       let gap = Math.abs(d1 - d2);
-      physicalGapText = `GAP +${gap.toFixed(3)}`;
+      physicalGapText = `GAP ${prefix}${gap.toFixed(3)}`;
     }
     gapHtml = `<span style="font-size: 1.1rem; color: #ffcc00; margin-top: 4px; margin-bottom: 4px; font-weight: bold;">${physicalGapText}</span>`;
 
@@ -526,7 +529,7 @@ function updateDashboard(driversList) {
     document.getElementById('myDriverNum').innerText = '--';
     
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
-      const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", gap_a: "--", gap_a_bl: "--", time_a_ll: "--:--", time_a_bl: "--:--", behind: "--", gap_b: "--", gap_b_bl: "--", time_b_ll: "--:--", time_b_bl: "--:--", num: "--" });
+      const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", gap_a: "--", gap_a_bl: "--", time_a_ll: "--:--", time_a_bl: "--:--", behind: "--", gap_b: "--", gap_b_bl: "--", time_b_ll: "--:--", time_b_bl: "--:--", num: "--", ca: 0, cb: 0, cab: 0, cbb: 0 });
       const message = new Paho.MQTT.Message(payload);
       message.destinationName = "pitboard/" + currentDeviceId + "/live";
       try { mqttClient.send(message); } catch(e) {}
@@ -576,6 +579,7 @@ function updateDashboard(driversList) {
     const myNumText = myNum ? `#${myNum}` : 'ME';
     document.getElementById('myDriverNum').innerText = myNumText;
     
+    let myLastMs = parseTimeToMs(formatLapTime(myDriver.lasttime || myDriver.lsTm));
     let myBestMs = parseTimeToMs(formatLapTime(myDriver.besttime || myDriver.btTm));
 
     // --- ELABORAZIONE AHEAD ---
@@ -585,6 +589,8 @@ function updateDashboard(driversList) {
     let mqttAheadGapBL = '--';
     let mqttAheadTimeLL = '--:--';
     let mqttAheadTimeBL = '--:--';
+    let c_a = 0;   // Colore Last Lap
+    let c_a_b = 0; // Colore Best Lap
 
     if (myPos > 1) {
       const driverAhead = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos - 1);
@@ -595,21 +601,28 @@ function updateDashboard(driversList) {
         mqttAheadTimeLL = formatLapTime(driverAhead.lasttime || driverAhead.lsTm);
         mqttAheadTimeBL = formatLapTime(driverAhead.besttime || driverAhead.btTm);
 
+        let theirLastMs = parseTimeToMs(mqttAheadTimeLL);
+        let theirBestMs = parseTimeToMs(mqttAheadTimeBL);
+
         let myDiffStr = String(myDriver.gap || myDriver.difference || myDriver.df || '0');
         let theirDiffStr = String(driverAhead.gap || driverAhead.difference || driverAhead.df || '0');
+        
+        // Logica MotoGP (- davanti)
         if (myDiffStr.toLowerCase().includes('lap') || theirDiffStr.toLowerCase().includes('lap') || myDiffStr.toLowerCase().includes('gir')) {
           mqttAheadGap = "LAPPED";
         } else {
           let d1 = parseFloat(myDiffStr.replace('+', '').replace(',', '.')) || 0;
           let d2 = parseFloat(theirDiffStr.replace('+', '').replace(',', '.')) || 0;
-          mqttAheadGap = "+" + Math.abs(d1 - d2).toFixed(3);
+          mqttAheadGap = "-" + Math.abs(d1 - d2).toFixed(3);
         }
         
-        let theirBestMs = parseTimeToMs(mqttAheadTimeBL);
         if(myBestMs > 0 && theirBestMs > 0) {
-           let diff = myBestMs - theirBestMs; 
-           mqttAheadGapBL = (diff > 0 ? "+" : "") + (diff/1000).toFixed(3);
+           mqttAheadGapBL = "-" + (Math.abs(myBestMs - theirBestMs)/1000).toFixed(3);
         }
+
+        // Colori: 1 Verde (Tu più veloce), 2 Rosso (Lui più veloce)
+        if (myLastMs > 0 && theirLastMs > 0) { c_a = (myLastMs <= theirLastMs) ? 1 : 2; }
+        if (myBestMs > 0 && theirBestMs > 0) { c_a_b = (myBestMs <= theirBestMs) ? 1 : 2; }
       }
     } else if (myPos === 1) {
       stringAhead = '<span class="rival-num" style="color:#ffcc00">LEADER</span><br><span style="font-size: 1.8rem;">🥇</span>';
@@ -624,6 +637,8 @@ function updateDashboard(driversList) {
     let mqttBehindGapBL = '--';
     let mqttBehindTimeLL = '--:--';
     let mqttBehindTimeBL = '--:--';
+    let c_b = 0;   // Colore Last Lap
+    let c_b_b = 0; // Colore Best Lap
 
     const driverBehind = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos + 1);
     
@@ -632,9 +647,14 @@ function updateDashboard(driversList) {
       mqttBehind = "#" + (driverBehind.raceno || driverBehind.no || "");
       mqttBehindTimeLL = formatLapTime(driverBehind.lasttime || driverBehind.lsTm);
       mqttBehindTimeBL = formatLapTime(driverBehind.besttime || driverBehind.btTm);
+
+      let theirLastMs = parseTimeToMs(mqttBehindTimeLL);
+      let theirBestMs = parseTimeToMs(mqttBehindTimeBL);
       
       let myDiffStr = String(myDriver.gap || myDriver.difference || myDriver.df || '0');
       let theirDiffStr = String(driverBehind.gap || driverBehind.difference || driverBehind.df || '0');
+      
+      // Logica MotoGP (+ dietro)
       if (myDiffStr.toLowerCase().includes('lap') || theirDiffStr.toLowerCase().includes('lap') || myDiffStr.toLowerCase().includes('gir')) {
         mqttBehindGap = "LAPPED";
       } else {
@@ -643,17 +663,21 @@ function updateDashboard(driversList) {
         mqttBehindGap = "+" + Math.abs(d1 - d2).toFixed(3);
       }
       
-      let theirBestMs = parseTimeToMs(mqttBehindTimeBL);
       if(myBestMs > 0 && theirBestMs > 0) {
-         let diff = myBestMs - theirBestMs; 
-         mqttBehindGapBL = (diff > 0 ? "+" : "") + (diff/1000).toFixed(3);
+         mqttBehindGapBL = "+" + (Math.abs(myBestMs - theirBestMs)/1000).toFixed(3);
       }
+
+      // Colori: 1 Verde (Tu più veloce), 2 Rosso (Lui più veloce)
+      if (myLastMs > 0 && theirLastMs > 0) { c_b = (myLastMs <= theirLastMs) ? 1 : 2; }
+      if (myBestMs > 0 && theirBestMs > 0) { c_b_b = (myBestMs <= theirBestMs) ? 1 : 2; }
+
     } else if (myPos > 0 && driversList.length > 0) {
       stringBehind = '<span class="rival-num" style="color:#888">CLEAR</span>';
       mqttBehind = "CLEAR";
     }
     document.getElementById('driverBehind').innerHTML = stringBehind;
     
+    // INVIO PACCHETTO DATI MQTT
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
       const payload = JSON.stringify({
         p: String(myPos),
@@ -668,7 +692,11 @@ function updateDashboard(driversList) {
         gap_b_bl: mqttBehindGapBL,
         time_b_ll: mqttBehindTimeLL,
         time_b_bl: mqttBehindTimeBL,
-        num: myNumText
+        num: myNumText,
+        ca: c_a,
+        cb: c_b,
+        cab: c_a_b,
+        cbb: c_b_b
       });
       const message = new Paho.MQTT.Message(payload);
       message.destinationName = "pitboard/" + currentDeviceId + "/live";
@@ -684,7 +712,7 @@ function updateDashboard(driversList) {
     document.getElementById('myDriverNum').innerText = '--';
     
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
-      const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", gap_a: "--", gap_a_bl: "--", time_a_ll: "--:--", time_a_bl: "--:--", behind: "--", gap_b: "--", gap_b_bl: "--", time_b_ll: "--:--", time_b_bl: "--:--", num: "--" });
+      const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", gap_a: "--", gap_a_bl: "--", time_a_ll: "--:--", time_a_bl: "--:--", behind: "--", gap_b: "--", gap_b_bl: "--", time_b_ll: "--:--", time_b_bl: "--:--", num: "--", ca: 0, cb: 0, cab: 0, cbb: 0 });
       const message = new Paho.MQTT.Message(payload);
       message.destinationName = "pitboard/" + currentDeviceId + "/live";
       try { mqttClient.send(message); } catch(e) {}
