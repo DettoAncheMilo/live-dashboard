@@ -632,49 +632,37 @@ if (currentRaceId) {
 }
 
 // ==========================================
-// MQTT CONNECTION (Corretta con percorso "/mqtt")
+// MQTT CONNECTION (Solo accoppiamento MANUALE per multi-utenza)
 // ==========================================
-// IMPORTANTE: il browser DEVE usare il percorso "/mqtt" per collegarsi a HiveMQ, 
-// a differenza del TCP nudo che usa la LilyGO.
 const mqttClient = new Paho.MQTT.Client("broker.hivemq.com", 8884, "/mqtt", "PitWall_Web_" + parseInt(Math.random() * 100000));
 
 mqttClient.onConnectionLost = function(responseObject) {
   isMqttConnected = false;
   console.log("⚠️ Connessione MQTT persa. Riconnessione in corso...");
-  updatePairingUI(); // Mostrerà il pallino Rosso
+  updatePairingUI(); 
   setTimeout(connectMQTT, 3000); 
 };
 
 mqttClient.onMessageArrived = function(message) {
-  if (message.destinationName === "milo/pitboard/config") {
-    try {
-      const config = JSON.parse(message.payloadString);
-      if (config.deviceId && !currentDeviceId) {
-        currentDeviceId = config.deviceId;
-        localStorage.setItem("pitboard_id", currentDeviceId);
-        const inputEl = document.getElementById("deviceIdInput");
-        if (inputEl) inputEl.value = currentDeviceId;
-        updatePairingUI(); // Mostrerà il pallino Verde
-      }
-    } catch(e) {}
-  }
+  // Funzione lasciata volutamente vuota per ora: 
+  // Rimosso l'auto-pairing che forzava la connessione al primo dispositivo online
 };
 
 function connectMQTT() {
   mqttClient.connect({
-    useSSL: true, // Sicurezza obbligatoria per le pagine web
+    useSSL: true, 
     timeout: 10,
     onSuccess: function() {
       isMqttConnected = true;
       console.log("✅ Radio MQTT Connessa via WebSockets!");
-      mqttClient.subscribe("milo/pitboard/config");
-      updatePairingUI(); // Passa da Rosso a Verde se hai il seriale
+      // Rimosso il subscribe al topic pubblico "milo/pitboard/config"
+      updatePairingUI(); 
       sendConfigToLilyGO(); 
     },
     onFailure: function(err) {
       isMqttConnected = false;
       console.log("❌ Fallita connessione MQTT:", err);
-      updatePairingUI(); // Mostrerà il pallino Rosso
+      updatePairingUI(); 
       setTimeout(connectMQTT, 5000);
     }
   });
@@ -705,7 +693,7 @@ window.sendPitCommand = function(commandText, colorCode) {
   }
   
   if (currentDeviceId === "") {
-    alert("⚠️ Nessun dispositivo associato! Inserisci il seriale (es. PIT-B870) e fai PAIR.");
+    alert("⚠️ Nessun dispositivo associato! Inserisci il seriale (es. PIT-B870) nei SETTINGS e fai PAIR.");
     return;
   }
 
