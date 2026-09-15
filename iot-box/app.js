@@ -72,14 +72,12 @@ window.pairDevice = function() {
   updatePairingUI();
   if (typeof sendConfigToLilyGO === "function") sendConfigToLilyGO();
 
-  // NOVITÀ: Se abbiamo già dei dati di gara caricati, li spara subito alla LilyGO appena associata!
   if (lastKnownDrivers.length > 0) {
     updateDashboard(lastKnownDrivers);
   }
 };
 
 window.unpairDevice = function() {
-  // PRIMA di scollegarsi, spara il comando di azzeramento totale alla LilyGO
   if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
     const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", gap_a: "--", behind: "--", gap_b: "--", num: "--" });
     const message = new Paho.MQTT.Message(payload);
@@ -87,7 +85,6 @@ window.unpairDevice = function() {
     try { mqttClient.send(message); } catch(e) {}
   }
 
-  // ORA può dimenticarsi il dispositivo
   currentDeviceId = "";
   localStorage.removeItem("pitboard_id");
   
@@ -208,7 +205,6 @@ function loadNewRace() {
 }
 
 function stopSession() {
-  // PRIMA di chiudere la sessione, azzera la LilyGO
   if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
     const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", gap_a: "--", behind: "--", gap_b: "--", num: "--" });
     const message = new Paho.MQTT.Message(payload);
@@ -551,15 +547,23 @@ function updateDashboard(driversList) {
     if (myPos === 1) {
       gapText = '+0.000';
     } else if (leaderDriver) {
-      let myBestMs = parseTimeToMs(formatLapTime(myDriver.besttime || myDriver.btTm));
-      let leaderBestMs = parseTimeToMs(formatLapTime(leaderDriver.besttime || leaderDriver.btTm));
-      
-      if (myBestMs > 0 && leaderBestMs > 0) {
-        let diffMs = myBestMs - leaderBestMs;
-        let sign = diffMs > 0 ? '+' : '';
-        gapText = `${sign}${(diffMs / 1000).toFixed(3)}`;
+      // Priorità al distacco ufficiale di gara (colonna Diff / df)
+      let officialDiff = myDriver.difference || myDriver.df || myDriver.gap;
+      if (officialDiff && String(officialDiff).trim() !== '' && String(officialDiff) !== '0') {
+        let cleanDiff = String(officialDiff).replace('+', '').trim();
+        gapText = `+${cleanDiff}`;
       } else {
-        gapText = '+0.000';
+        // Fallback sul delta dei Best Lap con segno corretto (Tuo Best - Leader Best)
+        let myBestMs = parseTimeToMs(formatLapTime(myDriver.besttime || myDriver.btTm));
+        let leaderBestMs = parseTimeToMs(formatLapTime(leaderDriver.besttime || leaderDriver.btTm));
+        
+        if (myBestMs > 0 && leaderBestMs > 0) {
+          let diffMs = myBestMs - leaderBestMs; // Se il tuo è più basso, il risultato è negativo!
+          let sign = diffMs > 0 ? '+' : '';
+          gapText = `${sign}${(diffMs / 1000).toFixed(3)}`;
+        } else {
+          gapText = '+0.000';
+        }
       }
     } else {
       gapText = '+0.000';
@@ -733,7 +737,7 @@ function sendConfigToLilyGO() {
   try {
     mqttClient.send(message);
   } catch(e) {}
-}
+};
 
 window.sendPitCommand = function(commandText, colorCode) {
   if (!isMqttConnected) {
