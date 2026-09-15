@@ -625,12 +625,13 @@ if (currentRaceId) {
   }
 }
 
-// Connessione MQTT standard in chiaro sulla porta 1883 compatibile con la LilyGO
-const mqttClient = new Paho.MQTT.Client("broker.hivemq.com", 1883, "PitWall_Web_" + parseInt(Math.random() * 100000));
+// Connessione MQTT per il BROWSER (DEVE usare WebSockets su porta 8884 e SSL)
+const mqttClient = new Paho.MQTT.Client("broker.hivemq.com", 8884, "PitWall_Web_" + parseInt(Math.random() * 100000));
 let isMqttConnected = false;
 
 mqttClient.onConnectionLost = function(responseObject) {
   isMqttConnected = false;
+  console.log("⚠️ Connessione MQTT persa. Riconnessione in corso...");
   setTimeout(connectMQTT, 3000); 
 };
 
@@ -656,11 +657,17 @@ mqttClient.onMessageArrived = function(message) {
 
 function connectMQTT() {
   mqttClient.connect({
-    useSSL: false,
+    useSSL: true, // Fondamentale per i browser web (connessione sicura wss://)
     onSuccess: function() {
       isMqttConnected = true;
+      console.log("✅ Radio MQTT Connessa via WebSockets!");
       mqttClient.subscribe("milo/pitboard/config");
       sendConfigToLilyGO(); 
+    },
+    onFailure: function(err) {
+      isMqttConnected = false;
+      console.log("❌ Fallita connessione MQTT:", err);
+      setTimeout(connectMQTT, 5000);
     }
   });
 }
@@ -685,7 +692,7 @@ function sendConfigToLilyGO() {
 
 window.sendPitCommand = function(commandText, colorCode) {
   if (!isMqttConnected) {
-    alert("⚠️ Radio connection not active. Please wait...");
+    alert("⚠️ Radio connection not active. Attendimi qualche secondo che si riconnetta al broker!");
     return;
   }
   
