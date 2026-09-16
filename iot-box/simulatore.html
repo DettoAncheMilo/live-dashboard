@@ -32,7 +32,6 @@
     .arrows { display: flex; align-items: center; gap: 15px; font-size: 3rem; color: #ffcc00; }
     .dashes { color: #fff; font-size: 2.8rem; font-weight: bold; letter-spacing: 2px; }
     
-    /* STILI EREDITATI DAL COMMANDER PER GRAFICA HTML */
     .rival { display: flex; flex-direction: column; text-align: center; line-height: 1.1; margin-top: 0; }
     .rival-num { color: #fff; font-size: 2rem; }
 
@@ -54,7 +53,8 @@
         <div class="val-pos" id="ui-pos">P-</div>
       </div>
       <div class="box box-half">
-        <div class="title">GAP TO LEADER</div>
+        <!-- ETICHETTA AGGIORNATA QUI -->
+        <div class="title">BEST LAP DELTA</div>
         <div class="val-gap" id="ui-gap">--</div>
       </div>
     </div>
@@ -62,7 +62,6 @@
       <div class="title">TRACK POSITION</div>
       <div class="track-pos-container">
         
-        <!-- AGGIUNTA CLASSE .rival PER FAR IMPILARE I DATI HTML -->
         <div class="track-col"><div class="track-title">BEHIND</div><div class="rival val-track" id="ui-behind">--</div></div>
         
         <div class="arrows"><span>&#9664;</span><span class="dashes" id="ui-num">--</span><span>&#9654;</span></div>
@@ -130,8 +129,13 @@
         else if (topic === topicLive) {
           if (document.getElementById('popup').style.display === "flex") return;
           
-          // USO DI innerHTML per tradurre i colori e gli A Capo dell'HTML ricevuto
-          document.getElementById('ui-pos').innerHTML = data.p === 0 ? "P-" : "P" + data.p;
+          // GESTIONE AGGIORNATA DELLA POSIZIONE VUOTA
+          let posText = "P-";
+          if (data.p && data.p !== "-" && data.p !== 0) {
+            posText = "P" + data.p;
+          }
+          
+          document.getElementById('ui-pos').innerHTML = posText;
           document.getElementById('ui-gap').innerHTML = data.gap || "--";
           document.getElementById('ui-behind').innerHTML = data.behind || "--";
           document.getElementById('ui-ahead').innerHTML = data.ahead || "--";
@@ -145,9 +149,6 @@
       }
     });
 
-    // ==========================================
-    // ANTI-STANDBY (WAKE LOCK API)
-    // ==========================================
     let wakeLock = null;
     const requestWakeLock = async () => {
       try {
