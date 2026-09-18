@@ -9,7 +9,8 @@
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background-color: #000; color: #fff; font-family: 'Arial', sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; user-select: none; }
+    /* Ho cambiato overflow: hidden in overflow-y: auto per permettere lo scroll in emergenza */
+    body { background-color: #000; color: #fff; font-family: 'Arial', sans-serif; height: 100vh; display: flex; flex-direction: column; overflow-y: auto; user-select: none; }
     
     .status-bar { height: 28px; background-color: #222; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; font-size: 0.8rem; color: #aaa; font-weight: bold; }
     .sim-id { color: #06b6d4; font-size: 0.9rem; font-weight: 900; letter-spacing: 1px; }
@@ -36,6 +37,30 @@
     .rival-num { color: #fff; font-size: 2rem; }
 
     #popup { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 9999; font-size: 8rem; font-weight: 900; text-transform: uppercase; text-align: center; }
+
+    /* =======================================================
+       REGOLA SMART PER TELEFONI IN ORIZZONTALE (ANTI-TAGLIO)
+       ======================================================= */
+    @media (max-height: 600px) {
+      .dashboard { padding: 5px; gap: 5px; }
+      .title { font-size: 0.85rem; top: 4px; }
+      .val-pos { font-size: 4rem; margin-top: 10px; }
+      .val-gap { font-size: 3.5rem; margin-top: 10px; }
+      .track-pos-container { margin-top: 15px; }
+      .track-title { font-size: 0.85rem; margin-bottom: 2px; }
+      .arrows { font-size: 2rem; }
+      .dashes { font-size: 2.2rem; }
+      .rival-num { font-size: 1.6rem; }
+      
+      /* Questo forza i riquadri HTML dei tempi inviati dal Commander a stringersi */
+      .rival div {
+        padding: 4px !important;
+        margin-top: 4px !important;
+        font-size: 0.95rem !important;
+        gap: 2px !important;
+        min-width: 140px !important;
+      }
+    }
   </style>
 </head>
 <body>
@@ -136,16 +161,12 @@
           document.getElementById('ui-pos').innerHTML = posText;
           document.getElementById('ui-gap').innerHTML = data.gap || "--";
           
-          // LA SOLUZIONE "ANTI-INCASINAMENTO": Il Simulatore ricostruisce la grafica leggendo i dati della LilyGO!
           function buildSmartBox(name, htmlString, tL, gL, tB, gB, cL, cB) {
-            // 1. Se il Commander riesce a inviare il pacchetto HTML, usa quello
             if (htmlString && htmlString !== "--") return htmlString;
             
-            // 2. Se l'HTML manca (causa cache o rete), disegna i box leggendo le variabili della LilyGO
             if (!name || name === "--" || name === "CLEAR") return `<span style="color:#888; font-size:2rem;">${name || "--"}</span>`;
             if (name === "LEADER") return `<span style="color:#ffcc00; font-size:2rem;">LEADER</span><br><span style="font-size: 1.8rem;">🥇</span>`;
             
-            // Traduce i numeri 1 (Verde) e 2 (Rosso) in colori reali
             let colorL = (cL === 1) ? '#22c55e' : (cL === 2 ? '#ef4444' : '#666');
             let colorB = (cB === 1) ? '#22c55e' : (cB === 2 ? '#ef4444' : '#666');
             
