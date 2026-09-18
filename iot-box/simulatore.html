@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   
-  <!-- META TAG PER MODALITA' APP (NASCONDE LE BARRE SE SALVATO NELLA HOME) -->
+  <!-- META TAG PER FARLO SEMBRARE UN'APP (Se lo salvi nella Home, sparisce Chrome!) -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -16,7 +16,18 @@
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background-color: #000; color: #fff; font-family: 'Arial', sans-serif; height: 100vh; display: flex; flex-direction: column; overflow-y: auto; user-select: none; }
+    
+    body { 
+      background-color: #000; 
+      color: #fff; 
+      font-family: 'Arial', sans-serif; 
+      height: 100vh; /* Fallback per vecchi telefoni */
+      height: 100dvh; /* Magia per la barra degli indirizzi dinamica */
+      display: flex; 
+      flex-direction: column; 
+      overflow: hidden; 
+      user-select: none; 
+    }
     
     .status-bar { height: 28px; background-color: #222; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; font-size: 0.8rem; color: #aaa; font-weight: bold; }
     .sim-id { color: #06b6d4; font-size: 0.9rem; font-weight: 900; letter-spacing: 1px; }
@@ -34,33 +45,39 @@
     .track-pos-container { display: flex; width: 100%; justify-content: space-around; align-items: center; margin-top: 25px; }
     .track-col { display: flex; flex-direction: column; align-items: center; }
     .track-title { color: #555; font-size: 1rem; font-weight: bold; margin-bottom: 5px; }
-    .val-track { color: #06b6d4; font-size: 2.5rem; font-weight: bold; }
+    .val-track { color: #06b6d4; font-size: 2.5rem; font-weight: bold; text-align: center; }
     
     .arrows { display: flex; align-items: center; gap: 15px; font-size: 3rem; color: #ffcc00; }
     .dashes { color: #fff; font-size: 2.8rem; font-weight: bold; letter-spacing: 2px; }
     
-    .rival { display: flex; flex-direction: column; text-align: center; line-height: 1.1; margin-top: 0; }
+    .rival { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; line-height: 1.1; margin-top: 0; width: 100%; }
     .rival-num { color: #fff; font-size: 2rem; }
 
     #popup { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 9999; font-size: 8rem; font-weight: 900; text-transform: uppercase; text-align: center; }
 
+    /* =======================================================
+       REGOLA COMPRESSIONE ESTREMA PER TELEFONI ORIZZONTALI
+       ======================================================= */
     @media (max-height: 600px) {
-      .dashboard { padding: 5px; gap: 5px; }
-      .title { font-size: 0.85rem; top: 4px; }
-      .val-pos { font-size: 4rem; margin-top: 10px; }
+      .dashboard { padding: 4px; gap: 4px; }
+      .box { border-width: 2px; border-radius: 8px; }
+      .title { font-size: 0.8rem; top: 2px; }
+      .val-pos { font-size: 4.5rem; margin-top: 10px; }
       .val-gap { font-size: 3.5rem; margin-top: 10px; }
       .track-pos-container { margin-top: 15px; }
-      .track-title { font-size: 0.85rem; margin-bottom: 2px; }
-      .arrows { font-size: 2rem; }
-      .dashes { font-size: 2.2rem; }
-      .rival-num { font-size: 1.6rem; }
+      .track-title { font-size: 0.75rem; margin-bottom: 2px; }
+      .arrows { font-size: 1.8rem; gap: 10px; }
+      .dashes { font-size: 2rem; }
       
-      .rival div {
-        padding: 4px !important;
-        margin-top: 4px !important;
-        font-size: 0.95rem !important;
-        gap: 2px !important;
-        min-width: 140px !important;
+      /* Sovrascrive lo stile HTML che arriva dal Commander per farlo entrare a forza */
+      .rival .rival-num { font-size: 1.5rem !important; }
+      .rival > span:nth-child(2) { font-size: 0.95rem !important; margin: 0 !important; } /* Comprime il GAP Giallo */
+      .rival div { 
+        padding: 4px !important; 
+        margin-top: 2px !important; 
+        font-size: 0.9rem !important; 
+        min-width: 130px !important; 
+        gap: 1px !important; 
       }
     }
   </style>
@@ -164,8 +181,12 @@
           document.getElementById('ui-gap').innerHTML = data.gap || "--";
           
           function buildSmartBox(name, htmlString, tL, gL, tB, gB, cL, cB) {
-            if (htmlString && htmlString !== "--") return htmlString;
+            // Controlla se l'HTML arriva correttamente dal Commander
+            if (htmlString && htmlString !== "--" && htmlString.trim() !== "") {
+              return htmlString;
+            }
             
+            // Fallback se il Commander sta usando cache vecchia
             if (!name || name === "--" || name === "CLEAR") return `<span style="color:#888; font-size:2rem;">${name || "--"}</span>`;
             if (name === "LEADER") return `<span style="color:#ffcc00; font-size:2rem;">LEADER</span><br><span style="font-size: 1.8rem;">🥇</span>`;
             
@@ -195,29 +216,22 @@
 
     let wakeLock = null;
     const requestFullScreenAndWakeLock = async () => {
-      // 1. FORZA LO SCHERMO INTERO (Nasconde barra indirizzi Chrome)
+      // PROVA A FORZARE LO SCHERMO INTERO QUANDO TOCCHI LO SCHERMO
       if (!document.fullscreenElement) {
         try {
           if (document.documentElement.requestFullscreen) {
             await document.documentElement.requestFullscreen();
-          } else if (document.documentElement.webkitRequestFullscreen) { /* Safari */
-            await document.documentElement.webkitRequestFullscreen();
-          } else if (document.documentElement.msRequestFullscreen) { /* IE11 */
-            await document.documentElement.msRequestFullscreen();
           }
-        } catch (err) {
-          console.log("Errore Fullscreen:", err);
-        }
+        } catch (err) {}
       }
 
-      // 2. FORZA IL WAKE LOCK (Anti-standby)
+      // WAKE LOCK (Anti-standby)
       try {
         wakeLock = await navigator.wakeLock.request('screen');
         console.log("Schermo bloccato acceso!");
       } catch (err) {}
     };
     
-    // Attiva le funzioni appena tocchi lo schermo
     document.body.addEventListener('click', requestFullScreenAndWakeLock);
     document.body.addEventListener('touchstart', requestFullScreenAndWakeLock);
   </script>
