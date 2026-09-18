@@ -79,7 +79,7 @@ window.pairDevice = function() {
 
 window.unpairDevice = function() {
   if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
-    const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", gap_a: "--", gap_a_bl: "--", time_a_ll: "--:--", time_a_bl: "--:--", behind: "--", gap_b: "--", gap_b_bl: "--", time_b_ll: "--:--", time_b_bl: "--:--", num: "--", ca: 0, cb: 0, cab: 0, cbb: 0 });
+    const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", ahead_html: "--", gap_a: "--", gap_a_bl: "--", time_a_ll: "--:--", time_a_bl: "--:--", behind: "--", behind_html: "--", gap_b: "--", gap_b_bl: "--", time_b_ll: "--:--", time_b_bl: "--:--", num: "--", ca: 0, cb: 0, cab: 0, cbb: 0 });
     const message = new Paho.MQTT.Message(payload);
     message.destinationName = "pitboard/" + currentDeviceId + "/live";
     try { mqttClient.send(message); } catch(e) {}
@@ -206,7 +206,7 @@ function loadNewRace() {
 
 function stopSession() {
   if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
-    const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", gap_a: "--", gap_a_bl: "--", time_a_ll: "--:--", time_a_bl: "--:--", behind: "--", gap_b: "--", gap_b_bl: "--", time_b_ll: "--:--", time_b_bl: "--:--", num: "--", ca: 0, cb: 0, cab: 0, cbb: 0 });
+    const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", ahead_html: "--", gap_a: "--", gap_a_bl: "--", time_a_ll: "--:--", time_a_bl: "--:--", behind: "--", behind_html: "--", gap_b: "--", gap_b_bl: "--", time_b_ll: "--:--", time_b_bl: "--:--", num: "--", ca: 0, cb: 0, cab: 0, cbb: 0 });
     const message = new Paho.MQTT.Message(payload);
     message.destinationName = "pitboard/" + currentDeviceId + "/live";
     try { mqttClient.send(message); } catch(e) {}
@@ -528,7 +528,7 @@ function updateDashboard(driversList) {
     document.getElementById('myDriverNum').innerText = '--';
     
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
-      const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", gap_a: "--", gap_a_bl: "--", time_a_ll: "--:--", time_a_bl: "--:--", behind: "--", gap_b: "--", gap_b_bl: "--", time_b_ll: "--:--", time_b_bl: "--:--", num: "--", ca: 0, cb: 0, cab: 0, cbb: 0 });
+      const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", ahead_html: "--", gap_a: "--", gap_a_bl: "--", time_a_ll: "--:--", time_a_bl: "--:--", behind: "--", behind_html: "--", gap_b: "--", gap_b_bl: "--", time_b_ll: "--:--", time_b_bl: "--:--", num: "--", ca: 0, cb: 0, cab: 0, cbb: 0 });
       const message = new Paho.MQTT.Message(payload);
       message.destinationName = "pitboard/" + currentDeviceId + "/live";
       try { mqttClient.send(message); } catch(e) {}
@@ -678,17 +678,19 @@ function updateDashboard(driversList) {
     }
     document.getElementById('driverBehind').innerHTML = stringBehind;
     
-    // INVIO PACCHETTO DATI MQTT
+    // INVIO PACCHETTO DATI MQTT (CON HTML PER IL SIMULATORE)
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
       const payload = JSON.stringify({
         p: String(myPos),
         gap: gapText,
         ahead: mqttAhead,
+        ahead_html: stringAhead,
         gap_a: mqttAheadGap,
         gap_a_bl: mqttAheadGapBL,
         time_a_ll: mqttAheadTimeLL,
         time_a_bl: mqttAheadTimeBL,
         behind: mqttBehind,
+        behind_html: stringBehind,
         gap_b: mqttBehindGap,
         gap_b_bl: mqttBehindGapBL,
         time_b_ll: mqttBehindTimeLL,
@@ -713,7 +715,7 @@ function updateDashboard(driversList) {
     document.getElementById('myDriverNum').innerText = '--';
     
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
-      const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", gap_a: "--", gap_a_bl: "--", time_a_ll: "--:--", time_a_bl: "--:--", behind: "--", gap_b: "--", gap_b_bl: "--", time_b_ll: "--:--", time_b_bl: "--:--", num: "--", ca: 0, cb: 0, cab: 0, cbb: 0 });
+      const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", ahead_html: "--", gap_a: "--", gap_a_bl: "--", time_a_ll: "--:--", time_a_bl: "--:--", behind: "--", behind_html: "--", gap_b: "--", gap_b_bl: "--", time_b_ll: "--:--", time_b_bl: "--:--", num: "--", ca: 0, cb: 0, cab: 0, cbb: 0 });
       const message = new Paho.MQTT.Message(payload);
       message.destinationName = "pitboard/" + currentDeviceId + "/live";
       try { mqttClient.send(message); } catch(e) {}
