@@ -136,9 +136,30 @@
           document.getElementById('ui-pos').innerHTML = posText;
           document.getElementById('ui-gap').innerHTML = data.gap || "--";
           
-          // LA MAGIA: Cerca prima il blocco HTML, se non c'è usa il numero crudo
-          document.getElementById('ui-behind').innerHTML = data.behind_html || data.behind || "--";
-          document.getElementById('ui-ahead').innerHTML = data.ahead_html || data.ahead || "--";
+          // LA SOLUZIONE "ANTI-INCASINAMENTO": Il Simulatore ricostruisce la grafica leggendo i dati della LilyGO!
+          function buildSmartBox(name, htmlString, tL, gL, tB, gB, cL, cB) {
+            // 1. Se il Commander riesce a inviare il pacchetto HTML, usa quello
+            if (htmlString && htmlString !== "--") return htmlString;
+            
+            // 2. Se l'HTML manca (causa cache o rete), disegna i box leggendo le variabili della LilyGO
+            if (!name || name === "--" || name === "CLEAR") return `<span style="color:#888; font-size:2rem;">${name || "--"}</span>`;
+            if (name === "LEADER") return `<span style="color:#ffcc00; font-size:2rem;">LEADER</span><br><span style="font-size: 1.8rem;">🥇</span>`;
+            
+            // Traduce i numeri 1 (Verde) e 2 (Rosso) in colori reali
+            let colorL = (cL === 1) ? '#22c55e' : (cL === 2 ? '#ef4444' : '#666');
+            let colorB = (cB === 1) ? '#22c55e' : (cB === 2 ? '#ef4444' : '#666');
+            
+            return `
+              <span class="rival-num">${name}</span>
+              <div style="display:flex; flex-direction:column; gap:4px; font-size:1.1rem; font-weight:bold; background:#1a1a1a; padding:6px; border-radius:6px; border:1px solid #333; margin-top:8px; width:100%; min-width:170px;">
+                  <span style="color:#ccc; display:flex; justify-content:space-between; align-items:center;"><span>⏱ L: ${tL || '--:--'}</span> <span style="color: ${colorL};">Δ ${gL || '--'}</span></span>
+                  <span style="color:#06b6d4; display:flex; justify-content:space-between; align-items:center;"><span>🔥 B: ${tB || '--:--'}</span> <span style="color: ${colorB};">Δ ${gB || '--'}</span></span>
+              </div>
+            `;
+          }
+
+          document.getElementById('ui-behind').innerHTML = buildSmartBox(data.behind, data.behind_html, data.time_b_ll, data.gap_b, data.time_b_bl, data.gap_b_bl, data.cb, data.cbb);
+          document.getElementById('ui-ahead').innerHTML = buildSmartBox(data.ahead, data.ahead_html, data.time_a_ll, data.gap_a, data.time_a_bl, data.gap_a_bl, data.ca, data.cab);
           
           document.getElementById('ui-num').innerHTML = data.num || "--";
           document.getElementById('ui-time').innerHTML = data.time || "--:--";
