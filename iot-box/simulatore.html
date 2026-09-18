@@ -53,7 +53,6 @@
         <div class="val-pos" id="ui-pos">P-</div>
       </div>
       <div class="box box-half">
-        <!-- ETICHETTA AGGIORNATA QUI -->
         <div class="title">BEST LAP DELTA</div>
         <div class="val-gap" id="ui-gap">--</div>
       </div>
@@ -129,7 +128,6 @@
         else if (topic === topicLive) {
           if (document.getElementById('popup').style.display === "flex") return;
           
-          // GESTIONE AGGIORNATA DELLA POSIZIONE VUOTA
           let posText = "P-";
           if (data.p && data.p !== "-" && data.p !== 0) {
             posText = "P" + data.p;
@@ -137,8 +135,10 @@
           
           document.getElementById('ui-pos').innerHTML = posText;
           document.getElementById('ui-gap').innerHTML = data.gap || "--";
-          document.getElementById('ui-behind').innerHTML = data.behind || "--";
-          document.getElementById('ui-ahead').innerHTML = data.ahead || "--";
+          
+          // LA MAGIA: Cerca prima il blocco HTML, se non c'è usa il numero crudo
+          document.getElementById('ui-behind').innerHTML = data.behind_html || data.behind || "--";
+          document.getElementById('ui-ahead').innerHTML = data.ahead_html || data.ahead || "--";
           
           document.getElementById('ui-num').innerHTML = data.num || "--";
           document.getElementById('ui-time').innerHTML = data.time || "--:--";
