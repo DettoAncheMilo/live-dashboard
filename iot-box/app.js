@@ -552,8 +552,10 @@ function updateDashboard(driversList) {
     const myNumText = myNum ? `#${myNum}` : 'ME';
     document.getElementById('myDriverNum').innerText = myNumText;
 
-    let stringAhead = '--'; let mqttAhead = '--'; let mqttAheadGap = '--'; 
-    let stringBehind = '--'; let mqttBehind = '--'; let mqttBehindGap = '--'; 
+    let myLastMs = parseTimeToMs(formatLapTime(myDriver.lasttime || myDriver.lsTm));
+
+    let stringAhead = '--'; let mqttAhead = '--'; let mqttAheadGap = '--'; let c_a = 0;
+    let stringBehind = '--'; let mqttBehind = '--'; let mqttBehindGap = '--'; let c_b = 0;
 
     let myDiffStr = String(myDriver.gap || myDriver.difference || myDriver.df || '0');
     let myDiffFloat = parseFloat(myDiffStr.replace('+', '').replace(',', '.')) || 0;
@@ -565,19 +567,31 @@ function updateDashboard(driversList) {
         stringAhead = formatRivalInfo(driverAhead, myDriver);
         mqttAhead = "#" + (driverAhead.raceno || driverAhead.no || "");
         
+        let theirLastMs = parseTimeToMs(formatLapTime(driverAhead.lasttime || driverAhead.lsTm));
         let theirDiffStr = String(driverAhead.gap || driverAhead.difference || driverAhead.df || '0');
+
         if (myDiffStr.toLowerCase().includes('lap') || theirDiffStr.toLowerCase().includes('lap')) {
           mqttAheadGap = "LAPPED";
         } else {
-          // CALCOLO DISTACCO FISICO REALE
           let theirDiffFloat = parseFloat(theirDiffStr.replace('+', '').replace(',', '.')) || 0;
           let physicalGap = Math.abs(myDiffFloat - theirDiffFloat);
-          mqttAheadGap = "+" + physicalGap.toFixed(3);
+          
+          let prefixA = "+";
+          if (myLastMs > 0 && theirLastMs > 0) {
+            if (myLastMs <= theirLastMs) {
+              prefixA = "-"; // Più veloce di chi precede: GUADAGNO!
+              c_a = 1;      // 1 = Verde
+            } else {
+              prefixA = "+"; // Più lento di chi precede: PERDO!
+              c_a = 2;      // 2 = Rosso
+            }
+          }
+          mqttAheadGap = prefixA + physicalGap.toFixed(3);
         }
       }
     } else if (myPos === 1) {
       stringAhead = '<span class="rival-num" style="color:#ffcc00">LEADER</span><br><span style="font-size: 1.8rem;">🥇</span>';
-      mqttAhead = "--"; // SOLUZIONE ELEGANTE: Manda i trattini se sei primo!
+      mqttAhead = "--"; 
     }
     document.getElementById('driverAhead').innerHTML = stringAhead;
 
@@ -587,36 +601,47 @@ function updateDashboard(driversList) {
       stringBehind = formatRivalInfo(driverBehind, myDriver);
       mqttBehind = "#" + (driverBehind.raceno || driverBehind.no || "");
       
+      let theirLastMs = parseTimeToMs(formatLapTime(driverBehind.lasttime || driverBehind.lsTm));
       let theirDiffStr = String(driverBehind.gap || driverBehind.difference || driverBehind.df || '0');
+
       if (myDiffStr.toLowerCase().includes('lap') || theirDiffStr.toLowerCase().includes('lap')) {
         mqttBehindGap = "LAPPED";
       } else {
-        // CALCOLO DISTACCO FISICO REALE
         let theirDiffFloat = parseFloat(theirDiffStr.replace('+', '').replace(',', '.')) || 0;
         let physicalGap = Math.abs(myDiffFloat - theirDiffFloat);
-        mqttBehindGap = "+" + physicalGap.toFixed(3);
+        
+        let prefixB = "+";
+        if (myLastMs > 0 && theirLastMs > 0) {
+          if (myLastMs <= theirLastMs) {
+            prefixB = "-"; // Più veloce di chi segue: ALLUNGO!
+            c_b = 1;      // 1 = Verde
+          } else {
+            prefixB = "+"; // Più lento di chi segue: MI RIMONTA!
+            c_b = 2;      // 2 = Rosso
+          }
+        }
+        mqttBehindGap = prefixB + physicalGap.toFixed(3);
       }
     } else if (myPos > 0 && driversList.length > 0) {
       stringBehind = '<span class="rival-num" style="color:#888">CLEAR</span>';
-      mqttBehind = "--"; // SOLUZIONE ELEGANTE: Nessuno dietro, manda i trattini.
+      mqttBehind = "--"; 
     }
     document.getElementById('driverBehind').innerHTML = stringBehind;
     
-    // INVIO ALLA MOTO (Con tutti i dati HTML intatti per lo smartphone!)
+    // INVIO PACCHETTO DATI ALLA MOTO
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
       const payload = JSON.stringify({
         p: String(myPos), gap: gapText, 
         ahead: mqttAhead, ahead_html: stringAhead, gap_a: mqttAheadGap, gap_a_bl: "--", time_a_ll: "--:--", time_a_bl: "--:--",
         behind: mqttBehind, behind_html: stringBehind, gap_b: mqttBehindGap, gap_b_bl: "--", time_b_ll: "--:--", time_b_bl: "--:--",
         num: myNumText, time: sessionTimeLeft, laps: String(myDriverLaps),
-        ca: 0, cb: 0, cab: 0, cbb: 0
+        ca: c_a, cb: c_b, cab: 0, cbb: 0
       });
       const message = new Paho.MQTT.Message(payload);
       message.destinationName = "pitboard/" + currentDeviceId + "/live";
       try { mqttClient.send(message); } catch(e) {}
     }
   } else {
-    // RESET DISPLAY SE NESSUN PILOTA È SELEZIONATO
     document.getElementById('pos').innerText = 'P-';
     document.getElementById('driverAhead').innerHTML = '--';
     document.getElementById('driverBehind').innerHTML = '--';
