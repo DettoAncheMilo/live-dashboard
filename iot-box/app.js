@@ -545,31 +545,25 @@ function updateDashboard(driversList) {
     let myPos = parseInt(myDriver.position || myDriver.pos, 10) || "-";
     document.getElementById('pos').innerText = `P${myPos}`;
 
-    const leaderDriver = driversList.find(d => parseInt(d.position || d.pos, 10) === 1);
-    
-    let gapText = "+0.000";
-    if (myPos === 1) {
-      gapText = '+0.000';
-    } else if (leaderDriver) {
-      let officialDiff = myDriver.difference || myDriver.df || myDriver.gap;
-      if (officialDiff && String(officialDiff).trim() !== '' && String(officialDiff) !== '0') {
-        let cleanDiff = String(officialDiff).replace('+', '').trim();
-        gapText = `+${cleanDiff}`;
+    // --- CALCOLO ASSOLUTO BEST LAP DELTA ---
+    let overallBestMs = Infinity;
+    driversList.forEach(d => {
+      let bMs = parseTimeToMs(formatLapTime(d.besttime || d.btTm));
+      if (bMs > 0 && bMs < overallBestMs) overallBestMs = bMs;
+    });
+
+    let myBestMs = parseTimeToMs(formatLapTime(myDriver.besttime || myDriver.btTm));
+    let gapText = "--";
+
+    if (myBestMs > 0 && overallBestMs !== Infinity) {
+      let diffMs = myBestMs - overallBestMs;
+      if (diffMs === 0) {
+        gapText = "-0.000"; // Tu hai il best lap assoluto! (Diventerà verde sul display)
       } else {
-        let myBestMs = parseTimeToMs(formatLapTime(myDriver.besttime || myDriver.btTm));
-        let leaderBestMs = parseTimeToMs(formatLapTime(leaderDriver.besttime || leaderDriver.btTm));
-        
-        if (myBestMs > 0 && leaderBestMs > 0) {
-          let diffMs = myBestMs - leaderBestMs;
-          let sign = diffMs > 0 ? '+' : '';
-          gapText = `${sign}${(diffMs / 1000).toFixed(3)}`;
-        } else {
-          gapText = '+0.000';
-        }
+        gapText = `+${(diffMs / 1000).toFixed(3)}`; // Più lento del record (Diventerà rosso sul display)
       }
-    } else {
-      gapText = '+0.000';
     }
+    
     document.getElementById('gap').innerText = gapText;
 
     const myNum = myDriver.raceno || myDriver.no || '';
@@ -577,7 +571,6 @@ function updateDashboard(driversList) {
     document.getElementById('myDriverNum').innerText = myNumText;
     
     let myLastMs = parseTimeToMs(formatLapTime(myDriver.lasttime || myDriver.lsTm));
-    let myBestMs = parseTimeToMs(formatLapTime(myDriver.besttime || myDriver.btTm));
 
     // --- ELABORAZIONE AHEAD ---
     let stringAhead = '--';
@@ -625,7 +618,7 @@ function updateDashboard(driversList) {
       }
     } else if (myPos === 1) {
       stringAhead = '<span class="rival-num" style="color:#ffcc00">LEADER</span><br><span style="font-size: 1.8rem;">🥇</span>';
-      mqttAhead = "LEADER";
+      mqttAhead = "CLEAR"; // <-- Modifica effettuata (Invia CLEAR allo schermo invece di LEADER)
     }
     document.getElementById('driverAhead').innerHTML = stringAhead;
 
@@ -696,8 +689,8 @@ function updateDashboard(driversList) {
         time_b_ll: mqttBehindTimeLL,
         time_b_bl: mqttBehindTimeBL,
         num: myNumText,
-        time: sessionTimeLeft,       // <---- IL TEMPO È TORNATO!
-        laps: String(myDriverLaps),  // <---- I GIRI SONO TORNATI!
+        time: sessionTimeLeft,       
+        laps: String(myDriverLaps),  
         ca: c_a,
         cb: c_b,
         cab: c_a_b,
