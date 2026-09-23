@@ -520,21 +520,7 @@ function updateDashboard(driversList) {
     }
   }
 
-  if (!selectedDriverId) {
-    document.getElementById('pos').innerText = 'P-';
-    document.getElementById('driverAhead').innerHTML = '--';
-    document.getElementById('driverBehind').innerHTML = '--';
-    document.getElementById('gap').innerText = '--';
-    document.getElementById('myDriverNum').innerText = '--';
-    
-    if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
-      const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", ahead_html: "--", gap_a: "--", gap_a_bl: "--", time_a_ll: "--:--", time_a_bl: "--:--", behind: "--", behind_html: "--", gap_b: "--", gap_b_bl: "--", time_b_ll: "--:--", time_b_bl: "--:--", num: "--", time: "--:--", laps: "-", ca: 0, cb: 0, cab: 0, cbb: 0 });
-      const message = new Paho.MQTT.Message(payload);
-      message.destinationName = "pitboard/" + currentDeviceId + "/live";
-      try { mqttClient.send(message); } catch(e) {}
-    }
-    return;
-  }
+  if (!selectedDriverId) return;
 
   const myDriver = driversList.find(d => String(getDriverId(d)) === String(selectedDriverId));
 
@@ -545,7 +531,7 @@ function updateDashboard(driversList) {
     let myPos = parseInt(myDriver.position || myDriver.pos, 10) || "-";
     document.getElementById('pos').innerText = `P${myPos}`;
 
-    // --- CALCOLO ASSOLUTO BEST LAP DELTA ---
+    // BEST LAP DELTA ASSOLUTO
     let overallBestMs = Infinity;
     driversList.forEach(d => {
       let bMs = parseTimeToMs(formatLapTime(d.besttime || d.btTm));
@@ -557,152 +543,80 @@ function updateDashboard(driversList) {
 
     if (myBestMs > 0 && overallBestMs !== Infinity) {
       let diffMs = myBestMs - overallBestMs;
-      if (diffMs === 0) {
-        gapText = "-0.000"; // Tu hai il best lap assoluto! (Diventerà verde sul display)
-      } else {
-        gapText = `+${(diffMs / 1000).toFixed(3)}`; // Più lento del record (Diventerà rosso sul display)
-      }
+      if (diffMs === 0) gapText = "-0.000"; 
+      else gapText = `+${(diffMs / 1000).toFixed(3)}`; 
     }
-    
     document.getElementById('gap').innerText = gapText;
 
     const myNum = myDriver.raceno || myDriver.no || '';
     const myNumText = myNum ? `#${myNum}` : 'ME';
     document.getElementById('myDriverNum').innerText = myNumText;
-    
-    let myLastMs = parseTimeToMs(formatLapTime(myDriver.lasttime || myDriver.lsTm));
 
-    // --- ELABORAZIONE AHEAD ---
-    let stringAhead = '--';
-    let mqttAhead = '--'; 
-    let mqttAheadGap = '--'; 
-    let mqttAheadGapBL = '--';
-    let mqttAheadTimeLL = '--:--';
-    let mqttAheadTimeBL = '--:--';
-    let c_a = 0;   
-    let c_a_b = 0; 
+    let stringAhead = '--'; let mqttAhead = '--'; let mqttAheadGap = '--'; 
+    let stringBehind = '--'; let mqttBehind = '--'; let mqttBehindGap = '--'; 
 
+    let myDiffStr = String(myDriver.gap || myDriver.difference || myDriver.df || '0');
+    let myDiffFloat = parseFloat(myDiffStr.replace('+', '').replace(',', '.')) || 0;
+
+    // --- AHEAD (CHI MI PRECEDE) ---
     if (myPos > 1) {
       const driverAhead = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos - 1);
-      stringAhead = driverAhead ? formatRivalInfo(driverAhead, myDriver) : '--';
-      
       if (driverAhead) {
+        stringAhead = formatRivalInfo(driverAhead, myDriver);
         mqttAhead = "#" + (driverAhead.raceno || driverAhead.no || "");
-        mqttAheadTimeLL = formatLapTime(driverAhead.lasttime || driverAhead.lsTm);
-        mqttAheadTimeBL = formatLapTime(driverAhead.besttime || driverAhead.btTm);
-
-        let theirLastMs = parseTimeToMs(mqttAheadTimeLL);
-        let theirBestMs = parseTimeToMs(mqttAheadTimeBL);
-
-        let myDiffStr = String(myDriver.gap || myDriver.difference || myDriver.df || '0');
+        
         let theirDiffStr = String(driverAhead.gap || driverAhead.difference || driverAhead.df || '0');
-        
-        if (myDiffStr.toLowerCase().includes('lap') || theirDiffStr.toLowerCase().includes('lap') || myDiffStr.toLowerCase().includes('gir')) {
+        if (myDiffStr.toLowerCase().includes('lap') || theirDiffStr.toLowerCase().includes('lap')) {
           mqttAheadGap = "LAPPED";
-          mqttAheadGapBL = "LAPPED";
         } else {
-          // CALCOLO PURO DEL GAP LAST LAP
-          if (myLastMs > 0 && theirLastMs > 0) {
-            let diffMs = theirLastMs - myLastMs; 
-            mqttAheadGap = (diffMs > 0 ? "+" : "") + (diffMs / 1000).toFixed(3);
-          }
-          // CALCOLO PURO DEL GAP BEST LAP
-          if (myBestMs > 0 && theirBestMs > 0) {
-            let diffMs = theirBestMs - myBestMs; 
-            mqttAheadGapBL = (diffMs > 0 ? "+" : "") + (diffMs / 1000).toFixed(3);
-          }
+          // CALCOLO DISTACCO FISICO REALE
+          let theirDiffFloat = parseFloat(theirDiffStr.replace('+', '').replace(',', '.')) || 0;
+          let physicalGap = Math.abs(myDiffFloat - theirDiffFloat);
+          mqttAheadGap = "+" + physicalGap.toFixed(3);
         }
-        
-        if (myLastMs > 0 && theirLastMs > 0) { c_a = (myLastMs <= theirLastMs) ? 1 : 2; }
-        if (myBestMs > 0 && theirBestMs > 0) { c_a_b = (myBestMs <= theirBestMs) ? 1 : 2; }
       }
     } else if (myPos === 1) {
       stringAhead = '<span class="rival-num" style="color:#ffcc00">LEADER</span><br><span style="font-size: 1.8rem;">🥇</span>';
-      mqttAhead = "CLEAR"; // <-- Modifica effettuata (Invia CLEAR allo schermo invece di LEADER)
+      mqttAhead = "--"; // SOLUZIONE ELEGANTE: Manda i trattini se sei primo!
     }
     document.getElementById('driverAhead').innerHTML = stringAhead;
 
-    // --- ELABORAZIONE BEHIND ---
-    let stringBehind = '--';
-    let mqttBehind = '--'; 
-    let mqttBehindGap = '--'; 
-    let mqttBehindGapBL = '--';
-    let mqttBehindTimeLL = '--:--';
-    let mqttBehindTimeBL = '--:--';
-    let c_b = 0;   
-    let c_b_b = 0; 
-
+    // --- BEHIND (CHI MI INSEGUE) ---
     const driverBehind = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos + 1);
-    
     if (driverBehind) {
       stringBehind = formatRivalInfo(driverBehind, myDriver);
       mqttBehind = "#" + (driverBehind.raceno || driverBehind.no || "");
-      mqttBehindTimeLL = formatLapTime(driverBehind.lasttime || driverBehind.lsTm);
-      mqttBehindTimeBL = formatLapTime(driverBehind.besttime || driverBehind.btTm);
-
-      let theirLastMs = parseTimeToMs(mqttBehindTimeLL);
-      let theirBestMs = parseTimeToMs(mqttBehindTimeBL);
       
-      let myDiffStr = String(myDriver.gap || myDriver.difference || myDriver.df || '0');
       let theirDiffStr = String(driverBehind.gap || driverBehind.difference || driverBehind.df || '0');
-      
-      if (myDiffStr.toLowerCase().includes('lap') || theirDiffStr.toLowerCase().includes('lap') || myDiffStr.toLowerCase().includes('gir')) {
+      if (myDiffStr.toLowerCase().includes('lap') || theirDiffStr.toLowerCase().includes('lap')) {
         mqttBehindGap = "LAPPED";
-        mqttBehindGapBL = "LAPPED";
       } else {
-        // CALCOLO PURO DEL GAP LAST LAP
-        if (myLastMs > 0 && theirLastMs > 0) {
-          let diffMs = theirLastMs - myLastMs; 
-          mqttBehindGap = (diffMs > 0 ? "+" : "") + (diffMs / 1000).toFixed(3);
-        }
-        // CALCOLO PURO DEL GAP BEST LAP
-        if (myBestMs > 0 && theirBestMs > 0) {
-          let diffMs = theirBestMs - myBestMs; 
-          mqttBehindGapBL = (diffMs > 0 ? "+" : "") + (diffMs / 1000).toFixed(3);
-        }
+        // CALCOLO DISTACCO FISICO REALE
+        let theirDiffFloat = parseFloat(theirDiffStr.replace('+', '').replace(',', '.')) || 0;
+        let physicalGap = Math.abs(myDiffFloat - theirDiffFloat);
+        mqttBehindGap = "+" + physicalGap.toFixed(3);
       }
-
-      if (myLastMs > 0 && theirLastMs > 0) { c_b = (myLastMs <= theirLastMs) ? 1 : 2; }
-      if (myBestMs > 0 && theirBestMs > 0) { c_b_b = (myBestMs <= theirBestMs) ? 1 : 2; }
-
     } else if (myPos > 0 && driversList.length > 0) {
       stringBehind = '<span class="rival-num" style="color:#888">CLEAR</span>';
-      mqttBehind = "CLEAR";
+      mqttBehind = "--"; // SOLUZIONE ELEGANTE: Nessuno dietro, manda i trattini.
     }
     document.getElementById('driverBehind').innerHTML = stringBehind;
     
-    // INVIO PACCHETTO DATI MQTT (CON HTML PER IL SIMULATORE E TEMPI RIPRISTINATI)
+    // INVIO ALLA MOTO (Con tutti i dati HTML intatti per lo smartphone!)
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
       const payload = JSON.stringify({
-        p: String(myPos),
-        gap: gapText,
-        ahead: mqttAhead,
-        ahead_html: stringAhead,
-        gap_a: mqttAheadGap,
-        gap_a_bl: mqttAheadGapBL,
-        time_a_ll: mqttAheadTimeLL,
-        time_a_bl: mqttAheadTimeBL,
-        behind: mqttBehind,
-        behind_html: stringBehind,
-        gap_b: mqttBehindGap,
-        gap_b_bl: mqttBehindGapBL,
-        time_b_ll: mqttBehindTimeLL,
-        time_b_bl: mqttBehindTimeBL,
-        num: myNumText,
-        time: sessionTimeLeft,       
-        laps: String(myDriverLaps),  
-        ca: c_a,
-        cb: c_b,
-        cab: c_a_b,
-        cbb: c_b_b
+        p: String(myPos), gap: gapText, 
+        ahead: mqttAhead, ahead_html: stringAhead, gap_a: mqttAheadGap, gap_a_bl: "--", time_a_ll: "--:--", time_a_bl: "--:--",
+        behind: mqttBehind, behind_html: stringBehind, gap_b: mqttBehindGap, gap_b_bl: "--", time_b_ll: "--:--", time_b_bl: "--:--",
+        num: myNumText, time: sessionTimeLeft, laps: String(myDriverLaps),
+        ca: 0, cb: 0, cab: 0, cbb: 0
       });
       const message = new Paho.MQTT.Message(payload);
       message.destinationName = "pitboard/" + currentDeviceId + "/live";
-      message.retained = false;
       try { mqttClient.send(message); } catch(e) {}
     }
-
   } else {
+    // RESET DISPLAY SE NESSUN PILOTA È SELEZIONATO
     document.getElementById('pos').innerText = 'P-';
     document.getElementById('driverAhead').innerHTML = '--';
     document.getElementById('driverBehind').innerHTML = '--';
