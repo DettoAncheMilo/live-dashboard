@@ -632,8 +632,8 @@ function updateDashboard(driversList) {
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
       const payload = JSON.stringify({
         p: String(myPos), gap: gapText, 
-        ahead: mqttAhead, ahead_html: stringAhead, gap_a: mqttAheadGap, gap_a_bl: "--", time_a_ll: "--:--", time_a_bl: "--:--",
-        behind: mqttBehind, behind_html: stringBehind, gap_b: mqttBehindGap, gap_b_bl: "--", time_b_ll: "--:--", time_b_bl: "--:--",
+        ahead: mqttAhead, ahead_html: stringAhead, gap_a: mqttAheadGap, gap_a_bl: mqttAheadGapBL, time_a_ll: "--:--", time_a_bl: "--:--",
+        behind: mqttBehind, behind_html: stringBehind, gap_b: mqttBehindGap, gap_b_bl: mqttBehindGapBL, time_b_ll: "--:--", time_b_bl: "--:--",
         num: myNumText, time: sessionTimeLeft, laps: String(myDriverLaps),
         ca: c_a, cb: c_b, cab: 0, cbb: 0
       });
