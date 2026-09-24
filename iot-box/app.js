@@ -71,7 +71,6 @@ window.pairDevice = function() {
   
   updatePairingUI();
 
-  // IMPULSO SEGRETO (cbb=1) PER ACCENDERE "PAIRED" SULLO SCHERMO
   if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
     const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", gap_a: "--", gap_a_bl: "--", behind: "--", gap_b: "--", gap_b_bl: "--", num: "--", time: "--:--", laps: "-", ca: 0, cb: 0, cbb: 1 });
     const message = new Paho.MQTT.Message(payload);
@@ -87,7 +86,6 @@ window.pairDevice = function() {
 };
 
 window.unpairDevice = function() {
-  // IMPULSO SEGRETO (cbb=2) PER ACCENDERE "UNPAIRED" SULLO SCHERMO
   if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
     const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", gap_a: "--", gap_a_bl: "--", behind: "--", gap_b: "--", gap_b_bl: "--", num: "--", time: "--:--", laps: "-", ca: 0, cb: 0, cbb: 2 });
     const message = new Paho.MQTT.Message(payload);
@@ -446,6 +444,7 @@ async function connectMylaps(sessionId) {
   }
 }
 
+// CORRETTA LA LOGICA DEI COLORI: MENO = VERDE (Sei più veloce), PIÙ = ROSSO (Sei più lento)
 function formatRivalInfo(driver, myDriver) {
   if (!driver) return '--';
   const num = driver.raceno || driver.no || '';
@@ -483,23 +482,25 @@ function formatRivalInfo(driver, myDriver) {
     }
     gapHtml = `<span style="font-size: 1.1rem; color: #ffcc00; margin-top: 4px; margin-bottom: 4px; font-weight: bold;">${physicalGapText}</span>`;
 
-    let myLastTimeRaw = myDriver.lasttime || myDriver.lsTm;
-    let myLastMs = parseTimeToMs(formatLapTime(myLastTimeRaw));
+    let myLastMs = parseTimeToMs(formatLapTime(myDriver.lasttime || myDriver.lsTm));
     let theirLastMs = parseTimeToMs(theirLastLap);
+    
+    // DELTA ULTIMO GIRO: IL MIO TEMPO - IL SUO TEMPO
     if (myLastMs > 0 && theirLastMs > 0) {
-      let diffMs = theirLastMs - myLastMs;
-      let sign = diffMs > 0 ? '+' : '';
-      let color = diffMs > 0 ? '#22c55e' : '#ef4444'; 
+      let diffMs = myLastMs - theirLastMs; 
+      let sign = diffMs > 0 ? '+' : ''; // Se io ci metto di più, segno +
+      let color = diffMs > 0 ? '#ef4444' : '#22c55e'; // Se segno +, ROSSO. Se negativo (-), VERDE!
       paceDeltaHtml = `<span style="color: ${color};">Δ ${sign}${(diffMs/1000).toFixed(3)}</span>`;
     }
 
-    let myBestTimeRaw = myDriver.besttime || myDriver.btTm;
-    let myBestMs = parseTimeToMs(formatLapTime(myBestTimeRaw));
+    let myBestMs = parseTimeToMs(formatLapTime(myDriver.besttime || myDriver.btTm));
     let theirBestMs = parseTimeToMs(theirBestLap);
+    
+    // DELTA BEST LAP: IL MIO TEMPO - IL SUO TEMPO
     if (myBestMs > 0 && theirBestMs > 0) {
-      let diffMs = theirBestMs - myBestMs;
-      let sign = diffMs > 0 ? '+' : '';
-      let color = diffMs > 0 ? '#22c55e' : '#ef4444'; 
+      let diffMs = myBestMs - theirBestMs;
+      let sign = diffMs > 0 ? '+' : ''; // Se io ci metto di più, segno +
+      let color = diffMs > 0 ? '#ef4444' : '#22c55e'; // Se segno +, ROSSO. Se negativo (-), VERDE!
       bestDeltaHtml = `<span style="color: ${color};">Δ ${sign}${(diffMs/1000).toFixed(3)}</span>`;
     }
   }
@@ -541,7 +542,6 @@ function updateDashboard(driversList) {
     let myPos = parseInt(myDriver.position || myDriver.pos, 10) || "-";
     document.getElementById('pos').innerText = `P${myPos}`;
 
-    // BEST LAP DELTA ASSOLUTO
     let overallBestMs = Infinity;
     driversList.forEach(d => {
       let bMs = parseTimeToMs(formatLapTime(d.besttime || d.btTm));
@@ -590,17 +590,17 @@ function updateDashboard(driversList) {
           let prefixA = "+";
           if (myLastMs > 0 && theirLastMs > 0) {
             if (myLastMs <= theirLastMs) {
-              prefixA = "-"; 
+              prefixA = "-"; // Verde
               c_a = 1;      
             } else {
-              prefixA = "+"; 
+              prefixA = "+"; // Rosso
               c_a = 2;      
             }
           }
           mqttAheadGap = prefixA + physicalGap.toFixed(3);
 
           if (myBestMs > 0 && theirBestMs > 0) {
-            let diffMsBL = theirBestMs - myBestMs;
+            let diffMsBL = myBestMs - theirBestMs; // IL MIO TEMPO - IL SUO TEMPO
             mqttAheadGapBL = (diffMsBL > 0 ? "+" : "") + (diffMsBL / 1000).toFixed(3);
           }
         }
@@ -630,17 +630,17 @@ function updateDashboard(driversList) {
         let prefixB = "+";
         if (myLastMs > 0 && theirLastMs > 0) {
           if (myLastMs <= theirLastMs) {
-            prefixB = "-"; 
+            prefixB = "-"; // Verde
             c_b = 1;      
           } else {
-            prefixB = "+"; 
+            prefixB = "+"; // Rosso
             c_b = 2;      
           }
         }
         mqttBehindGap = prefixB + physicalGap.toFixed(3);
 
         if (myBestMs > 0 && theirBestMs > 0) {
-            let diffMsBL = theirBestMs - myBestMs;
+            let diffMsBL = myBestMs - theirBestMs; // IL MIO TEMPO - IL SUO TEMPO
             mqttBehindGapBL = (diffMsBL > 0 ? "+" : "") + (diffMsBL / 1000).toFixed(3);
         }
       }
@@ -650,10 +650,8 @@ function updateDashboard(driversList) {
     }
     document.getElementById('driverBehind').innerHTML = stringBehind;
     
-    // INVIO PACCHETTO DATI SDOPPIATO
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
       
-      // 1. PACCHETTO "LITE" PER SCHERMO LILYGO (Leggero, con cbb=1 per dire PAIRED)
       const payloadLite = JSON.stringify({
         p: String(myPos), gap: gapText, 
         ahead: mqttAhead, gap_a: mqttAheadGap, gap_a_bl: mqttAheadGapBL,
@@ -665,7 +663,6 @@ function updateDashboard(driversList) {
       msgLite.destinationName = "pitboard/" + currentDeviceId + "/live";
       try { mqttClient.send(msgLite); } catch(e) {}
 
-      // 2. PACCHETTO "FULL" PER SMARTPHONE
       const payloadFull = JSON.stringify({
         p: String(myPos), gap: gapText, ahead: mqttAhead, ahead_html: stringAhead,
         behind: mqttBehind, behind_html: stringBehind, num: myNumText, time: sessionTimeLeft, laps: String(myDriverLaps)
@@ -682,7 +679,6 @@ function updateDashboard(driversList) {
     document.getElementById('gap').innerText = '--';
     document.getElementById('myDriverNum').innerText = '--';
     
-    // INVIO IMPULSO UNPAIRED (cbb=2)
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
       const payload = JSON.stringify({ p: "-", gap: "--", ahead: "--", gap_a: "--", gap_a_bl: "--", behind: "--", gap_b: "--", gap_b_bl: "--", num: "--", time: "--:--", laps: "-", ca: 0, cb: 0, cbb: 2 });
       const message = new Paho.MQTT.Message(payload);
