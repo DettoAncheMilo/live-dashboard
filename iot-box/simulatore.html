@@ -1,239 +1,257 @@
-<!DOCTYPE html>
-<html lang="it">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  
-  <!-- META TAG PER FARLO SEMBRARE UN'APP (Se lo salvi nella Home, sparisce Chrome!) -->
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="theme-color" content="#000000">
+<!DOCTYPE html> 
+<html lang="it"> 
+<head> 
+  <meta charset="UTF-8"> 
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"> 
+   
+  <!-- META TAG PER FARLO SEMBRARE UN'APP (Se lo salvi nella Home, sparisce Chrome!) --> 
+  <meta name="apple-mobile-web-app-capable" content="yes"> 
+  <meta name="mobile-web-app-capable" content="yes"> 
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"> 
+  <meta name="theme-color" content="#000000"> 
 
-  <title>Pitboard Live Simulator</title>
-  
-  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <title>Pitboard Live Simulator</title> 
+   
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script> 
 
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    
-    body { 
-      background-color: #000; 
-      color: #fff; 
-      font-family: 'Arial', sans-serif; 
-      height: 100vh; /* Fallback per vecchi telefoni */
-      height: 100dvh; /* Magia per la barra degli indirizzi dinamica */
-      display: flex; 
-      flex-direction: column; 
-      overflow: hidden; 
-      user-select: none; 
+  <style> 
+    * { box-sizing: border-box; margin: 0; padding: 0; } 
+     
+    body {  
+      background-color: #000;  
+      color: #fff;  
+      font-family: 'Arial Black', sans-serif;  
+      height: 100vh; /* Fallback per vecchi telefoni */ 
+      height: 100dvh; /* Magia per la barra degli indirizzi dinamica */ 
+      display: flex;  
+      flex-direction: column;  
+      overflow: hidden;  
+      user-select: none;  
+    } 
+     
+    .status-bar { height: 28px; background-color: #222; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; font-size: 0.8rem; color: #aaa; font-weight: bold; } 
+    .sim-id { color: #06b6d4; font-size: 0.9rem; font-weight: 900; letter-spacing: 1px; } 
+    .session-info { color: #fff; font-size: 0.9rem; } 
+     
+    .dashboard { flex: 1; display: flex; flex-direction: column; padding: 10px; gap: 10px; } 
+    .row-top { display: flex; flex: 1; gap: 10px; } 
+    .box { border: 3px solid #333; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; } 
+    .box-half { flex: 1; } 
+    .box-full { flex: 1; display: flex; flex-direction: column; } 
+    .title { position: absolute; top: 10px; color: #777; font-size: 1.1rem; font-weight: 900; letter-spacing: 1px; } 
+    .val-pos { color: #ffcc00; font-size: 6rem; font-weight: bold; margin-top: 15px; } 
+    .val-gap { color: #ef4444; font-size: 4.5rem; font-weight: bold; margin-top: 15px; } 
+     
+    .track-pos-container { display: flex; width: 100%; justify-content: space-around; align-items: center; margin-top: 25px; } 
+    .track-col { display: flex; flex-direction: column; align-items: center; } 
+    .track-title { color: #555; font-size: 1rem; font-weight: bold; margin-bottom: 5px; } 
+    .val-track { color: #06b6d4; font-size: 2.5rem; font-weight: bold; text-align: center; } 
+     
+    .arrows { display: flex; align-items: center; gap: 15px; font-size: 3rem; color: #ffcc00; } 
+    .dashes { color: #fff; font-size: 2.8rem; font-weight: bold; letter-spacing: 2px; } 
+     
+    .rival { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; line-height: 1.1; margin-top: 0; width: 100%; } 
+    .rival-num { color: #fff; font-size: 2rem; } 
+
+    /* POPUP CON BORDO NERO PER LEGGIBILITA SU TUTTI I COLORI */
+    #popup { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 9999; font-size: 8rem; font-weight: 900; text-transform: uppercase; text-align: center; color: #fff; text-shadow: 4px 4px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000; } 
+
+    /* COMPRESSIONE ESTREMA PER TELEFONI ORIZZONTALI */ 
+    @media (max-height: 600px) { 
+      .dashboard { padding: 4px; gap: 4px; } 
+      .box { border-width: 2px; border-radius: 8px; } 
+      .title { font-size: 0.8rem; top: 2px; } 
+      .val-pos { font-size: 4.5rem; margin-top: 10px; } 
+      .val-gap { font-size: 3.5rem; margin-top: 10px; } 
+      .track-pos-container { margin-top: 15px; } 
+      .track-title { font-size: 0.75rem; margin-bottom: 2px; } 
+      .arrows { font-size: 1.8rem; gap: 10px; } 
+      .dashes { font-size: 2rem; } 
+       
+      .rival .rival-num { font-size: 1.5rem !important; } 
+      .rival > span:nth-child(2) { font-size: 0.95rem !important; margin: 0 !important; } 
+      .rival div {  
+        padding: 4px !important;  
+        margin-top: 2px !important;  
+        font-size: 0.9rem !important;  
+        min-width: 130px !important;  
+        gap: 1px !important;  
+      } 
+    } 
+  </style> 
+</head> 
+<body> 
+
+  <div class="status-bar"> 
+    <span id="connStatus">🟡 INIZIALIZZAZIONE...</span> 
+    <span id="simIdDisplay" class="sim-id">ID: PIT-XXXX</span> 
+    <span class="session-info">⏱ <span id="ui-time" style="color:#22c55e;">--:--</span> | 🔄 <span id="ui-laps" style="color:#3b82f6;">-</span></span> 
+  </div> 
+
+  <div class="dashboard"> 
+    <div class="row-top"> 
+      <div class="box box-half"> 
+        <div class="title">POSITION</div> 
+        <div class="val-pos" id="ui-pos">P-</div> 
+      </div> 
+      <div class="box box-half"> 
+        <div class="title">BEST LAP DELTA</div> 
+        <div class="val-gap" id="ui-gap">--</div> 
+      </div> 
+    </div> 
+    <div class="box box-full"> 
+      <div class="title">TRACK POSITION</div> 
+      <div class="track-pos-container"> 
+         
+        <div class="track-col"><div class="track-title">BEHIND</div><div class="rival val-track" id="ui-behind">--</div></div> 
+         
+        <div class="arrows"><span>&#9664;</span><span class="dashes" id="ui-num">--</span><span>&#9654;</span></div> 
+         
+        <div class="track-col"><div class="track-title">AHEAD</div><div class="rival val-track" id="ui-ahead">--</div></div> 
+      </div> 
+    </div> 
+  </div> 
+
+  <div id="popup">MSG</div> 
+
+  <script> 
+    // Mantiene l'ID costante se il telefono ricarica la pagina per errore
+    let simId = localStorage.getItem('pitboardSimId');
+    if (!simId) {
+      simId = "PIT-S" + Math.floor(Math.random() * 900 + 100);
+      localStorage.setItem('pitboardSimId', simId);
     }
-    
-    .status-bar { height: 28px; background-color: #222; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; font-size: 0.8rem; color: #aaa; font-weight: bold; }
-    .sim-id { color: #06b6d4; font-size: 0.9rem; font-weight: 900; letter-spacing: 1px; }
-    .session-info { color: #fff; font-size: 0.9rem; }
-    
-    .dashboard { flex: 1; display: flex; flex-direction: column; padding: 10px; gap: 10px; }
-    .row-top { display: flex; flex: 1; gap: 10px; }
-    .box { border: 3px solid #333; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
-    .box-half { flex: 1; }
-    .box-full { flex: 1; display: flex; flex-direction: column; }
-    .title { position: absolute; top: 10px; color: #777; font-size: 1.1rem; font-weight: 900; letter-spacing: 1px; }
-    .val-pos { color: #ffcc00; font-size: 6rem; font-weight: bold; margin-top: 15px; }
-    .val-gap { color: #ef4444; font-size: 4.5rem; font-weight: bold; margin-top: 15px; }
-    
-    .track-pos-container { display: flex; width: 100%; justify-content: space-around; align-items: center; margin-top: 25px; }
-    .track-col { display: flex; flex-direction: column; align-items: center; }
-    .track-title { color: #555; font-size: 1rem; font-weight: bold; margin-bottom: 5px; }
-    .val-track { color: #06b6d4; font-size: 2.5rem; font-weight: bold; text-align: center; }
-    
-    .arrows { display: flex; align-items: center; gap: 15px; font-size: 3rem; color: #ffcc00; }
-    .dashes { color: #fff; font-size: 2.8rem; font-weight: bold; letter-spacing: 2px; }
-    
-    .rival { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; line-height: 1.1; margin-top: 0; width: 100%; }
-    .rival-num { color: #fff; font-size: 2rem; }
+    document.getElementById('simIdDisplay').innerText = "ID: " + simId; 
 
-    #popup { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 9999; font-size: 8rem; font-weight: 900; text-transform: uppercase; text-align: center; }
+    const topicCommand = "pitboard/" + simId + "/command"; 
+    const topicLive = "pitboard/" + simId + "/live"; 
 
-    /* =======================================================
-       REGOLA COMPRESSIONE ESTREMA PER TELEFONI ORIZZONTALI
-       ======================================================= */
-    @media (max-height: 600px) {
-      .dashboard { padding: 4px; gap: 4px; }
-      .box { border-width: 2px; border-radius: 8px; }
-      .title { font-size: 0.8rem; top: 2px; }
-      .val-pos { font-size: 4.5rem; margin-top: 10px; }
-      .val-gap { font-size: 3.5rem; margin-top: 10px; }
-      .track-pos-container { margin-top: 15px; }
-      .track-title { font-size: 0.75rem; margin-bottom: 2px; }
-      .arrows { font-size: 1.8rem; gap: 10px; }
-      .dashes { font-size: 2rem; }
-      
-      /* Sovrascrive lo stile HTML che arriva dal Commander per farlo entrare a forza */
-      .rival .rival-num { font-size: 1.5rem !important; }
-      .rival > span:nth-child(2) { font-size: 0.95rem !important; margin: 0 !important; } /* Comprime il GAP Giallo */
-      .rival div { 
-        padding: 4px !important; 
-        margin-top: 2px !important; 
-        font-size: 0.9rem !important; 
-        min-width: 130px !important; 
-        gap: 1px !important; 
-      }
-    }
-  </style>
-</head>
-<body>
+    const brokerUrl = "wss://broker.hivemq.com:8884/mqtt"; 
+    const clientId = "Sim_Web_" + parseInt(Math.random() * 100000); 
+     
+    const statusEl = document.getElementById('connStatus'); 
+    statusEl.innerText = "🟡 CONNESSIONE 4G..."; 
+    statusEl.style.color = "#ffcc00"; 
 
-  <div class="status-bar">
-    <span id="connStatus">🟡 INIZIALIZZAZIONE...</span>
-    <span id="simIdDisplay" class="sim-id">ID: PIT-XXXX</span>
-    <span class="session-info">⏱ <span id="ui-time" style="color:#22c55e;">--:--</span> | 🔄 <span id="ui-laps" style="color:#3b82f6;">-</span></span>
-  </div>
+    const client = mqtt.connect(brokerUrl, { 
+      clientId: clientId, 
+      reconnectPeriod: 3000,
+      clean: true,
+      keepalive: 10
+    }); 
 
-  <div class="dashboard">
-    <div class="row-top">
-      <div class="box box-half">
-        <div class="title">POSITION</div>
-        <div class="val-pos" id="ui-pos">P-</div>
-      </div>
-      <div class="box box-half">
-        <div class="title">BEST LAP DELTA</div>
-        <div class="val-gap" id="ui-gap">--</div>
-      </div>
-    </div>
-    <div class="box box-full">
-      <div class="title">TRACK POSITION</div>
-      <div class="track-pos-container">
-        
-        <div class="track-col"><div class="track-title">BEHIND</div><div class="rival val-track" id="ui-behind">--</div></div>
-        
-        <div class="arrows"><span>&#9664;</span><span class="dashes" id="ui-num">--</span><span>&#9654;</span></div>
-        
-        <div class="track-col"><div class="track-title">AHEAD</div><div class="rival val-track" id="ui-ahead">--</div></div>
-      </div>
-    </div>
-  </div>
+    let popupTimer = null; 
 
-  <div id="popup">MSG</div>
+    client.on('connect', function () { 
+      statusEl.innerText = "🟢 4G ONLINE TM"; 
+      statusEl.style.color = "#22c55e"; 
+      client.subscribe(topicCommand, { qos: 1 }); 
+      client.subscribe(topicLive, { qos: 0 }); 
+    }); 
 
-  <script>
-    const simId = "PIT-S" + Math.floor(Math.random() * 900 + 100);
-    document.getElementById('simIdDisplay').innerText = "ID: " + simId;
+    client.on('error', function (err) { 
+      statusEl.innerText = "🔴 ERRORE: " + err.message; 
+      statusEl.style.color = "#ef4444"; 
+    }); 
 
-    const topicCommand = "pitboard/" + simId + "/command";
-    const topicLive = "pitboard/" + simId + "/live";
+    client.on('offline', function() { 
+      statusEl.innerText = "🔴 OFFLINE - RICERCA RETE..."; 
+      statusEl.style.color = "#ef4444"; 
+    }); 
 
-    const brokerUrl = "wss://broker.hivemq.com:8884/mqtt";
-    const clientId = "Sim_Web_" + parseInt(Math.random() * 100000);
-    
-    const statusEl = document.getElementById('connStatus');
-    statusEl.innerText = "🟡 CONNESSIONE 4G...";
-    statusEl.style.color = "#ffcc00";
-
-    const client = mqtt.connect(brokerUrl, {
-      clientId: clientId,
-      reconnectPeriod: 3000
-    });
-
-    let popupTimer = null;
-
-    client.on('connect', function () {
-      statusEl.innerText = "🟢 4G ONLINE TM";
-      statusEl.style.color = "#22c55e";
-      client.subscribe(topicCommand);
-      client.subscribe(topicLive);
-    });
-
-    client.on('error', function (err) {
-      statusEl.innerText = "🔴 ERRORE: " + err.message;
-      statusEl.style.color = "#ef4444";
-    });
-
-    client.on('offline', function() {
-      statusEl.innerText = "🔴 OFFLINE - RICERCA RETE...";
-      statusEl.style.color = "#ef4444";
-    });
-
-    client.on('message', function (topic, message) {
-      try {
-        const payload = message.toString();
-        const data = JSON.parse(payload);
-        
-        if (topic === topicCommand) {
-          const popup = document.getElementById('popup');
-          popup.innerText = data.cmd || "ERROR";
-          popup.style.backgroundColor = data.color || "#000";
-          popup.style.color = (data.color === "#ffcc00") ? "#000" : "#fff";
-          popup.style.display = "flex";
-          
-          if (popupTimer) clearTimeout(popupTimer);
-          popupTimer = setTimeout(() => { popup.style.display = "none"; }, 4000);
-        }
-        else if (topic === topicLive) {
-          if (document.getElementById('popup').style.display === "flex") return;
-          
-          let posText = "P-";
-          if (data.p && data.p !== "-" && data.p !== 0) {
-            posText = "P" + data.p;
-          }
-          
-          document.getElementById('ui-pos').innerHTML = posText;
-          document.getElementById('ui-gap').innerHTML = data.gap || "--";
-          
-          function buildSmartBox(name, htmlString, tL, gL, tB, gB, cL, cB) {
-            // Controlla se l'HTML arriva correttamente dal Commander
-            if (htmlString && htmlString !== "--" && htmlString.trim() !== "") {
-              return htmlString;
-            }
-            
-            // Fallback se il Commander sta usando cache vecchia
-            if (!name || name === "--" || name === "CLEAR") return `<span style="color:#888; font-size:2rem;">${name || "--"}</span>`;
-            if (name === "LEADER") return `<span style="color:#ffcc00; font-size:2rem;">LEADER</span><br><span style="font-size: 1.8rem;">🥇</span>`;
-            
-            let colorL = (cL === 1) ? '#22c55e' : (cL === 2 ? '#ef4444' : '#666');
-            let colorB = (cB === 1) ? '#22c55e' : (cB === 2 ? '#ef4444' : '#666');
-            
-            return `
-              <span class="rival-num">${name}</span>
-              <div style="display:flex; flex-direction:column; gap:4px; font-size:1.1rem; font-weight:bold; background:#1a1a1a; padding:6px; border-radius:6px; border:1px solid #333; margin-top:8px; width:100%; min-width:170px;">
-                  <span style="color:#ccc; display:flex; justify-content:space-between; align-items:center;"><span>⏱ L: ${tL || '--:--'}</span> <span style="color: ${colorL};">Δ ${gL || '--'}</span></span>
-                  <span style="color:#06b6d4; display:flex; justify-content:space-between; align-items:center;"><span>🔥 B: ${tB || '--:--'}</span> <span style="color: ${colorB};">Δ ${gB || '--'}</span></span>
-              </div>
-            `;
+    client.on('message', function (topic, message) { 
+      try { 
+        const payload = message.toString(); 
+        const data = JSON.parse(payload); 
+         
+        if (topic === topicCommand) { 
+          const popup = document.getElementById('popup'); 
+          popup.innerText = data.cmd || "ERROR"; 
+          popup.style.backgroundColor = data.color || "#000"; 
+          // Il colore del testo rimane bianco con bordo nero (text-shadow via CSS)
+          popup.style.display = "flex"; 
+           
+          if (popupTimer) clearTimeout(popupTimer); 
+          popupTimer = setTimeout(() => { popup.style.display = "none"; }, 4000); 
+        } 
+        else if (topic === topicLive) { 
+          // Se la dashboard ordina di scollegarsi (UNPAIR / STOP)
+          if (data.cbb === 2) {
+              document.getElementById('ui-pos').innerHTML = "P-"; 
+              document.getElementById('ui-gap').innerHTML = "--"; 
+              document.getElementById('ui-behind').innerHTML = "--";
+              document.getElementById('ui-ahead').innerHTML = "--";
+              document.getElementById('ui-num').innerHTML = "--"; 
+              document.getElementById('ui-time').innerHTML = "--:--"; 
+              document.getElementById('ui-laps').innerHTML = "-";
+              return;
           }
 
-          document.getElementById('ui-behind').innerHTML = buildSmartBox(data.behind, data.behind_html, data.time_b_ll, data.gap_b, data.time_b_bl, data.gap_b_bl, data.cb, data.cbb);
-          document.getElementById('ui-ahead').innerHTML = buildSmartBox(data.ahead, data.ahead_html, data.time_a_ll, data.gap_a, data.time_a_bl, data.gap_a_bl, data.ca, data.cab);
-          
-          document.getElementById('ui-num').innerHTML = data.num || "--";
-          document.getElementById('ui-time').innerHTML = data.time || "--:--";
-          document.getElementById('ui-laps').innerHTML = data.laps || "-";
-        }
-      } catch(e) {
-        console.log("Errore pacchetto:", e);
+          if (document.getElementById('popup').style.display === "flex") return; 
+           
+          let posText = "P-"; 
+          if (data.p && data.p !== "-" && data.p !== "0") { 
+            posText = "P" + data.p; 
+          } 
+           
+          document.getElementById('ui-pos').innerHTML = posText; 
+          document.getElementById('ui-gap').innerHTML = data.gap || "--"; 
+           
+          function buildSmartBox(name, htmlString, tL, gL, tB, gB, cL, cB) { 
+            if (htmlString && htmlString !== "--" && htmlString !== "-" && htmlString.trim() !== "") { 
+              return htmlString; 
+            } 
+             
+            if (!name || name === "--" || name === "-" || name === "CLEAR") return `<span style="color:#888; font-size:2rem;">${name || "--"}</span>`; 
+            if (name === "LEADER") return `<span style="color:#ffcc00; font-size:2rem;">LEADER</span><br><span style="font-size: 1.8rem;">🥇</span>`; 
+             
+            let colorL = (cL === 1) ? '#22c55e' : (cL === 2 ? '#ef4444' : '#666'); 
+            let colorB = (cB === 1) ? '#22c55e' : (cB === 2 ? '#ef4444' : '#666'); 
+             
+            return ` 
+              <span class="rival-num">${name}</span> 
+              <div style="display:flex; flex-direction:column; gap:4px; font-size:1.1rem; font-weight:bold; background:#1a1a1a; padding:6px; border-radius:6px; border:1px solid #333; margin-top:8px; width:100%; min-width:170px;"> 
+                  <span style="color:#ccc; display:flex; justify-content:space-between; align-items:center;"><span>⏱ L: ${tL || '--:--'}</span> <span style="color: ${colorL};">Δ ${gL || '--'}</span></span> 
+                  <span style="color:#06b6d4; display:flex; justify-content:space-between; align-items:center;"><span>🔥 B: ${tB || '--:--'}</span> <span style="color: ${colorB};">Δ ${gB || '--'}</span></span> 
+              </div> 
+            `; 
+          } 
+
+          document.getElementById('ui-behind').innerHTML = buildSmartBox(data.behind, data.behind_html, data.time_b_ll, data.gap_b, data.time_b_bl, data.gap_b_bl, data.cb, data.cbb); 
+          document.getElementById('ui-ahead').innerHTML = buildSmartBox(data.ahead, data.ahead_html, data.time_a_ll, data.gap_a, data.time_a_bl, data.gap_a_bl, data.ca, data.cab); 
+           
+          document.getElementById('ui-num').innerHTML = data.num || "--"; 
+          document.getElementById('ui-time').innerHTML = data.time || "--:--"; 
+          document.getElementById('ui-laps').innerHTML = data.laps || "-"; 
+        } 
+      } catch(e) { 
+        console.log("Errore pacchetto:", e); 
+      } 
+    }); 
+
+    let wakeLock = null; 
+    const requestFullScreenAndWakeLock = async () => { 
+      if (!document.fullscreenElement) { 
+        try { 
+          if (document.documentElement.requestFullscreen) { 
+            await document.documentElement.requestFullscreen(); 
+          } 
+        } catch (err) {} 
+      } 
+
+      try { 
+        wakeLock = await navigator.wakeLock.request('screen'); 
+      } catch (err) {} 
+    }; 
+     
+    document.body.addEventListener('click', requestFullScreenAndWakeLock); 
+    document.body.addEventListener('touchstart', requestFullScreenAndWakeLock); 
+
+    document.addEventListener('visibilitychange', async () => {
+      if (document.visibilityState === 'visible') {
+        await requestFullScreenAndWakeLock();
       }
     });
-
-    let wakeLock = null;
-    const requestFullScreenAndWakeLock = async () => {
-      // PROVA A FORZARE LO SCHERMO INTERO QUANDO TOCCHI LO SCHERMO
-      if (!document.fullscreenElement) {
-        try {
-          if (document.documentElement.requestFullscreen) {
-            await document.documentElement.requestFullscreen();
-          }
-        } catch (err) {}
-      }
-
-      // WAKE LOCK (Anti-standby)
-      try {
-        wakeLock = await navigator.wakeLock.request('screen');
-        console.log("Schermo bloccato acceso!");
-      } catch (err) {}
-    };
-    
-    document.body.addEventListener('click', requestFullScreenAndWakeLock);
-    document.body.addEventListener('touchstart', requestFullScreenAndWakeLock);
-  </script>
-</body>
+  </script> 
+</body> 
 </html>
