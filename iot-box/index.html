@@ -8,20 +8,22 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background-color: #050505; color: #ffffff; font-family: 'Arial Black', sans-serif; padding: 10px; height: 100vh; display: flex; flex-direction: column; }
     
+    /* HEADER ULTRA COMPATTO */
     .header { display: flex; flex-direction: column; gap: 10px; padding: 10px; background: #151515; border-radius: 8px; margin-bottom: 10px; }
+    .input-row { display: flex; width: 100%; gap: 8px; }
+    .input-row input { padding: 10px; border-radius: 6px; border: 1px solid #444; background: #222; color: #fff; font-size: 1rem; }
+    #raceLinkInput { flex: 1; }
+    #myRaceNumber { flex: 0 0 60px; text-align: center; font-weight: bold; text-transform: uppercase; color: #ffcc00; }
     
-    /* PAIRING BOX RIPRISTINATA */
-    .pairing-row { display: flex; align-items: center; gap: 10px; background: #222; padding: 10px; border-radius: 6px; border: 1px solid #444; }
-    .pairing-row input { flex: 0 0 120px; text-align: center; text-transform: uppercase; font-weight: bold; }
-    .pairing-row button { padding: 8px 12px; font-size: 0.9rem; }
-    #pairStatus { flex: 1; text-align: right; font-size: 0.9rem; }
-    
-    .input-row { display: flex; width: 100%; gap: 10px; }
-    input { flex: 1; padding: 10px; border-radius: 6px; border: 1px solid #444; background: #222; color: #fff; font-size: 1rem; }
     button { padding: 10px 15px; font-weight: bold; background: #ffcc00; color: #000; border: none; border-radius: 6px; cursor: pointer; text-transform: uppercase; }
+    #stopBtn { display: none; background-color: #ef4444; color: white; }
     
-    .select-row { display: flex; width: 100%; justify-content: space-between; align-items: center; }
-    select { font-size: 1.1rem; padding: 6px 12px; background: #252525; color: #fff; border: 1px solid #444; border-radius: 6px; font-weight: bold; max-width: 60%; }
+    .select-row { display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 10px; }
+    .pairing-mini { display: flex; align-items: center; gap: 8px; }
+    #deviceIdInput { width: 110px; padding: 8px; font-size: 0.95rem; text-transform: uppercase; font-weight: bold; background: #222; border: 1px solid #444; color: #fff; border-radius: 4px; text-align: center; }
+    #pairStatus { font-size: 0.8rem; color: #888; font-weight: bold; white-space: nowrap; }
+    
+    select { flex: 1; font-size: 1rem; padding: 8px 12px; background: #252525; color: #fff; border: 1px solid #444; border-radius: 6px; font-weight: bold; max-width: 50%; }
     
     .session-status { text-align: center; font-size: 1.2rem; font-weight: bold; color: white; padding: 10px; background: #1a1a1a; border-radius: 8px; margin-bottom: 10px; border: 1px solid #333; }
     
@@ -64,8 +66,8 @@
     .custom-box { display: flex; gap: 10px; align-items: center; background: #1a1a1a; padding: 10px; border-radius: 8px; border: 1px solid #333; }
     .custom-input { flex: 1; text-transform: uppercase; font-weight: bold; border-radius: 6px; border: 1px solid #555; background: #000; color: #fff; padding: 15px; font-size: 1.1rem; }
     
-    /* CSS specifico per far apparire bene il selettore del colore */
-    .custom-color { flex: 0 0 50px; height: 50px; border-radius: 6px; border: 2px solid #555; background: #222; cursor: pointer; padding: 0; }
+    /* CSS specifico per far apparire perfetto il selettore colore */
+    .custom-color { flex: 0 0 50px; height: 50px; border-radius: 6px; border: 2px solid #555; background: #222; cursor: pointer; padding: 0; outline: none; -webkit-appearance: none; }
     .custom-color::-webkit-color-swatch-wrapper { padding: 0; }
     .custom-color::-webkit-color-swatch { border: none; border-radius: 4px; }
     
@@ -75,21 +77,18 @@
 </head>
 <body>
   <div class="header">
-   <!-- SEZIONE PAIRING RIPRISTINATA -->
-   <div class="pairing-row">
-      <input type="text" id="deviceIdInput" placeholder="PIT-XXXX">
-      <button onclick="pairDevice()" style="background-color: #3b82f6; color: white; border: 1px solid #2563eb;">PAIR</button>
-      <button onclick="unpairDevice()" style="background-color: #ef4444; color: white; border: 1px solid #dc2626;">UNPAIR</button>
-      <span id="pairStatus">STATUS: UNPAIRED</span>
-   </div>
-
-   <div class="input-row">
+    <div class="input-row">
       <input type="text" id="raceLinkInput" placeholder="Paste link here...">
+      <input type="text" id="myRaceNumber" placeholder="MY#" title="Insert your race number">
       <button id="loadBtn" onclick="loadNewRace()">LOAD</button>
-      <button id="stopBtn" onclick="stopSession()" style="display: none; background-color: #ef4444; color: white;">STOP</button>
+      <button id="stopBtn" onclick="stopSession()">STOP</button>
     </div>
+    
     <div class="select-row">
-      <span style="color:#888; font-size:0.9rem;">LIVE TIMING</span>
+      <div class="pairing-mini">
+        <input type="text" id="deviceIdInput" placeholder="PIT-XXXX" onchange="pairDevice()">
+        <span id="pairStatus">UNPAIRED</span>
+      </div>
       <select id="driverSelect">
         <option value="">Select Rider...</option>
       </select>
@@ -128,24 +127,18 @@
     </div>
   </div>
 
-  <!-- PANNELLO COMANDI PIT WALL -->
   <div class="command-panel">
-    
-    <!-- QUICK COMMANDS (Sopra) -->
     <div class="quick-btns">
       <button class="cmd-btn btn-push" onclick="sendPitCommand('PUSH PUSH', '#00FF00')">PUSH</button>
       <button class="cmd-btn btn-slow" onclick="sendPitCommand('RIDER BEHIND', '#FFCC00')">RIDER BEHIND</button>
       <button class="cmd-btn btn-box" onclick="sendPitCommand('BOX BOX', '#FF0000')">BOX</button>
     </div>
 
-    <!-- CUSTOM MESSAGE (Sotto) -->
     <div class="custom-box">
-      <input type="text" id="customTextInput" class="custom-input" maxlength="15" placeholder="MESSAGGIO...">
-      <!-- Color Picker con Arancione Racing come default -->
+      <input type="text" id="customTextInput" class="custom-input" maxlength="15" placeholder="TYPE MESSAGE...">
       <input type="color" id="customColorPicker" class="custom-color" value="#ff6600">
       <button class="custom-btn" onclick="sendCustomMessage()">SEND</button>
     </div>
-    
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>

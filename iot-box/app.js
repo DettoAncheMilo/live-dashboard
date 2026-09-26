@@ -10,6 +10,7 @@ let activeEngine = 'time2race';
 let currentDeviceId = ""; 
 let isMqttConnected = false;
 
+// Anti-standby per il telefono
 if ('wakeLock' in navigator) {
   navigator.wakeLock.request('screen').catch(console.error);
 }
@@ -18,31 +19,29 @@ function updatePairingUI() {
   const statusEl = document.getElementById("pairStatus");
   if (!statusEl) return;
   if (currentDeviceId === "") {
-    statusEl.innerText = "STATUS: UNPAIRED";
-    statusEl.style.color = "#ffcc00"; 
+    statusEl.innerText = "UNPAIRED";
+    statusEl.style.color = "#888"; 
   } else {
     if (isMqttConnected) {
-      statusEl.innerText = "STATUS: PAIRED TO " + currentDeviceId + " (RADIO 🟢)";
+      statusEl.innerText = "RADIO 🟢";
       statusEl.style.color = "#22c55e"; 
     } else {
-      statusEl.innerText = "STATUS: PAIRED TO " + currentDeviceId + " (RADIO 🔴)";
+      statusEl.innerText = "RADIO 🔴";
       statusEl.style.color = "#ef4444"; 
     }
   }
 }
 
 window.addEventListener('DOMContentLoaded', () => {
-  const targetElement = document.getElementById('loadBtn'); 
-  if (targetElement && targetElement.parentNode) {
-    const inputStr = `<input type="text" id="myRaceNumber" placeholder="My#" title="Insert your race number" style="width: 50px; max-width: 50px; flex: 0 0 50px; margin-left: 8px; margin-right: 8px; padding: 2px; border-radius: 4px; border: 1px solid #555; background: #222; color: #ffcc00; font-weight: bold; text-align: center; font-size: 0.95rem; box-sizing: border-box;">`;
-    targetElement.insertAdjacentHTML('beforebegin', inputStr);
-    const savedNum = localStorage.getItem('pit_race_number');
-    if (savedNum) document.getElementById('myRaceNumber').value = savedNum;
-  }
+  // Carica i dati salvati
+  const savedNum = localStorage.getItem('pit_race_number');
+  if (savedNum) document.getElementById('myRaceNumber').value = savedNum;
+
   const savedDeviceId = localStorage.getItem("pitboard_id");
   if (savedDeviceId) {
     const inputEl = document.getElementById("deviceIdInput");
     if (inputEl) inputEl.value = savedDeviceId;
+    currentDeviceId = savedDeviceId;
   }
   updatePairingUI();
 });
@@ -51,8 +50,14 @@ window.pairDevice = function() {
   const inputEl = document.getElementById("deviceIdInput");
   if (!inputEl) return;
   const input = inputEl.value.trim().toUpperCase();
-  if (input === "") { alert("Inserisci un Device ID valido!"); return; }
   
+  if (input === "") {
+      currentDeviceId = "";
+      localStorage.removeItem("pitboard_id");
+      updatePairingUI();
+      return;
+  }
+
   currentDeviceId = input;
   localStorage.setItem("pitboard_id", currentDeviceId);
   updatePairingUI();
@@ -71,26 +76,6 @@ window.pairDevice = function() {
 
   if (typeof sendConfigToLilyGO === "function") sendConfigToLilyGO();
   if (lastKnownDrivers.length > 0) updateDashboard(lastKnownDrivers);
-};
-
-window.unpairDevice = function() {
-  if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
-    const resetLite = JSON.stringify({ 
-      p: "-", gap: "--", 
-      ahead: "--", ahead_html: "-", gap_a: "--", gap_a_bl: "--", time_a_ll: "-", time_a_bl: "-",
-      behind: "--", behind_html: "-", gap_b: "--", gap_b_bl: "--", time_b_ll: "-", time_b_bl: "-",
-      num: "--", time: "--:--", laps: "-", ca: 0, cb: 0, cab: 0, cbb: 2 
-    });
-    const msgResetLite = new Paho.MQTT.Message(resetLite);
-    msgResetLite.destinationName = "pitboard/" + currentDeviceId + "/live";
-    try { mqttClient.send(msgResetLite); } catch(e) {}
-  }
-  
-  currentDeviceId = "";
-  localStorage.removeItem("pitboard_id");
-  const inputEl = document.getElementById("deviceIdInput");
-  if (inputEl) inputEl.value = "";
-  updatePairingUI();
 };
 
 function setButtonState(state) {
@@ -152,7 +137,11 @@ function loadNewRace() {
   if (!inputUrl) return;
   const keepAliveAudio = document.getElementById('keepAliveAudio');
   if (keepAliveAudio) keepAliveAudio.play().catch(e => console.log("Audio background ignorato"));
+  
   setButtonState('connecting');
+  
+  // AUTO-PAIRING AL CLICK SU LOAD
+  pairDevice();
   
   if (inputUrl.includes('time2race.it')) {
     const match = inputUrl.match(/race\/(\d+)/); 
@@ -176,17 +165,19 @@ function loadNewRace() {
 }
 
 function stopSession() {
+  // PULIZIA AUTO DELLO SCHERMO FISICO AL CLICK SU STOP
   if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
     const resetLite = JSON.stringify({ 
       p: "-", gap: "--", 
       ahead: "--", ahead_html: "-", gap_a: "--", gap_a_bl: "--", time_a_ll: "-", time_a_bl: "-",
       behind: "--", behind_html: "-", gap_b: "--", gap_b_bl: "--", time_b_ll: "-", time_b_bl: "-",
-      num: "--", time: "--:--", laps: "-", ca: 0, cb: 0, cab: 0, cbb: 1 
+      num: "--", time: "--:--", laps: "-", ca: 0, cb: 0, cab: 0, cbb: 2 
     });
     const msgResetLite = new Paho.MQTT.Message(resetLite);
     msgResetLite.destinationName = "pitboard/" + currentDeviceId + "/live";
     try { mqttClient.send(msgResetLite); } catch(e) {}
   }
+
   if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); ws = null; }
   if (window.wsTimeout) clearTimeout(window.wsTimeout);
   currentRaceId = null; activeEngine = null;
@@ -556,24 +547,20 @@ window.sendPitCommand = function(commandText, colorCode) {
   } catch(e) {}
 };
 
-// === NUOVA FUNZIONE: MESSAGGIO PERSONALIZZATO ===
 window.sendCustomMessage = function() {
     const inputField = document.getElementById("customTextInput");
     const colorPicker = document.getElementById("customColorPicker");
     
-    // Togliamo gli spazi iniziali/finali e forziamo il maiuscolo
     let customText = inputField.value.trim().toUpperCase();
-    let chosenColor = colorPicker.value.toUpperCase(); // Es: "#FF6600"
+    let chosenColor = colorPicker.value.toUpperCase(); 
 
-    // Se non ha scritto niente, ignora il click
     if (customText === "") return; 
 
     if (!isMqttConnected || currentDeviceId === "") {
-        alert("Non sei connesso alla Pitboard!");
+        alert("Board non connessa!");
         return;
     }
 
-    // Costruisce lo stesso identico pacchetto dei tasti rapidi, ma col testo custom
     const payload = JSON.stringify({ cmd: customText, color: chosenColor });
     const message = new Paho.MQTT.Message(payload);
     message.destinationName = "pitboard/" + currentDeviceId + "/command"; 
@@ -581,12 +568,8 @@ window.sendCustomMessage = function() {
     
     try {
         mqttClient.send(message);
-        
-        // Feedback visivo sul bordo del browser con il colore scelto
         document.body.style.border = "4px solid " + chosenColor;
         setTimeout(() => { document.body.style.border = "none"; }, 500);
-        
-        // Svuota la barra di testo così è pronta per il prossimo messaggio
         inputField.value = "";
     } catch(e) {
         console.error("Errore invio custom message", e);
