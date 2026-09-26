@@ -462,7 +462,7 @@ function updateDashboard(driversList) {
     
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
       
-      // PACCHETTO "LITE" - Inserite tutte le chiavi vuote per non far crashare LilyGO
+      // PACCHETTO "LITE"
       const payloadLite = JSON.stringify({
         p: String(myPos), gap: gapText, 
         ahead: mqttAhead, ahead_html: "-", gap_a: mqttAheadGap, gap_a_bl: mqttAheadGapBL, time_a_ll: "-", time_a_bl: "-",
@@ -554,6 +554,43 @@ window.sendPitCommand = function(commandText, colorCode) {
     document.body.style.border = "4px solid " + colorCode;
     setTimeout(() => { document.body.style.border = "none"; }, 500);
   } catch(e) {}
+};
+
+// === NUOVA FUNZIONE: MESSAGGIO PERSONALIZZATO ===
+window.sendCustomMessage = function() {
+    const inputField = document.getElementById("customTextInput");
+    const colorPicker = document.getElementById("customColorPicker");
+    
+    // Togliamo gli spazi iniziali/finali e forziamo il maiuscolo
+    let customText = inputField.value.trim().toUpperCase();
+    let chosenColor = colorPicker.value.toUpperCase(); // Es: "#FF6600"
+
+    // Se non ha scritto niente, ignora il click
+    if (customText === "") return; 
+
+    if (!isMqttConnected || currentDeviceId === "") {
+        alert("Non sei connesso alla Pitboard!");
+        return;
+    }
+
+    // Costruisce lo stesso identico pacchetto dei tasti rapidi, ma col testo custom
+    const payload = JSON.stringify({ cmd: customText, color: chosenColor });
+    const message = new Paho.MQTT.Message(payload);
+    message.destinationName = "pitboard/" + currentDeviceId + "/command"; 
+    message.retained = false; 
+    
+    try {
+        mqttClient.send(message);
+        
+        // Feedback visivo sul bordo del browser con il colore scelto
+        document.body.style.border = "4px solid " + chosenColor;
+        setTimeout(() => { document.body.style.border = "none"; }, 500);
+        
+        // Svuota la barra di testo così è pronta per il prossimo messaggio
+        inputField.value = "";
+    } catch(e) {
+        console.error("Errore invio custom message", e);
+    }
 };
 
 connectMQTT();
