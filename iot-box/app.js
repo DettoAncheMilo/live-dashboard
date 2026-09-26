@@ -15,6 +15,13 @@ if ('wakeLock' in navigator) {
   navigator.wakeLock.request('screen').catch(console.error);
 }
 
+// === NUOVA FUNZIONE: Riconoscimento Doppiaggi ===
+function isLappedGap(gapStr) {
+  if (!gapStr) return false;
+  const s = String(gapStr).toLowerCase();
+  return s.includes('lap') || s.includes('lp');
+}
+
 function updatePairingUI() {
   const statusEl = document.getElementById("pairStatus");
   if (!statusEl) return;
@@ -33,7 +40,6 @@ function updatePairingUI() {
 }
 
 window.addEventListener('DOMContentLoaded', () => {
-  // Carica i dati salvati
   const savedNum = localStorage.getItem('pit_race_number');
   if (savedNum) document.getElementById('myRaceNumber').value = savedNum;
 
@@ -135,12 +141,8 @@ function updateBanner() {
 function loadNewRace() {
   const inputUrl = document.getElementById('raceLinkInput').value;
   if (!inputUrl) return;
-  const keepAliveAudio = document.getElementById('keepAliveAudio');
-  if (keepAliveAudio) keepAliveAudio.play().catch(e => console.log("Audio background ignorato"));
   
   setButtonState('connecting');
-  
-  // AUTO-PAIRING AL CLICK SU LOAD
   pairDevice();
   
   if (inputUrl.includes('time2race.it')) {
@@ -165,7 +167,6 @@ function loadNewRace() {
 }
 
 function stopSession() {
-  // PULIZIA AUTO DELLO SCHERMO FISICO AL CLICK SU STOP
   if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
     const resetLite = JSON.stringify({ 
       p: "-", gap: "--", 
@@ -320,7 +321,9 @@ function formatRivalInfo(driver, myDriver) {
   if (myDriver) {
     let myDiffStr = String(myDriver.gap || myDriver.difference || myDriver.df || '0');
     let theirDiffStr = String(driver.gap || driver.difference || driver.df || '0');
-    let isLapped = myDiffStr.toLowerCase().includes('lap') || theirDiffStr.toLowerCase().includes('lap');
+    
+    // VERIFICA SE UNO DEI DUE E' DOPPIATO
+    let isLapped = isLappedGap(myDiffStr) || isLappedGap(theirDiffStr);
     let prefix = (parseInt(driver.position || driver.pos, 10) < parseInt(myDriver.position || myDriver.pos, 10)) ? "-" : "+";
 
     let physicalGapText = 'LAPPED';
@@ -399,7 +402,7 @@ function updateDashboard(driversList) {
     let myDiffStr = String(myDriver.gap || myDriver.difference || myDriver.df || '0');
     let myDiffFloat = parseFloat(myDiffStr.replace('+', '').replace(',', '.')) || 0;
 
-    // AHEAD
+    // === GESTIONE AHEAD ===
     if (myPos > 1) {
       const driverAhead = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos - 1);
       if (driverAhead) {
@@ -407,18 +410,29 @@ function updateDashboard(driversList) {
         mqttAhead = "#" + (driverAhead.raceno || driverAhead.no || "");
         let theirLastMs = parseTimeToMs(formatLapTime(driverAhead.lasttime || driverAhead.lsTm));
         let theirBestMs = parseTimeToMs(formatLapTime(driverAhead.besttime || driverAhead.btTm));
+        let theirDiffStr = String(driverAhead.gap || driverAhead.df || '0');
         
-        if (myDiffStr.toLowerCase().includes('lap') || String(driverAhead.gap || driverAhead.df || '0').toLowerCase().includes('lap')) {
-          mqttAheadGap = "LAPPED"; mqttAheadGapBL = "LAPPED";
+        let isLapped = isLappedGap(myDiffStr) || isLappedGap(theirDiffStr);
+
+        if (isLapped) {
+          mqttAheadGap = "LAPPED"; 
         } else {
-          let theirDiffFloat = parseFloat(String(driverAhead.gap || driverAhead.df || '0').replace('+', '').replace(',', '.')) || 0;
+          let theirDiffFloat = parseFloat(theirDiffStr.replace('+', '').replace(',', '.')) || 0;
           mqttAheadGap = "+" + Math.abs(myDiffFloat - theirDiffFloat).toFixed(3);
-          if (myLastMs > 0 && theirLastMs > 0) { c_a = (myLastMs <= theirLastMs) ? 1 : 2; mqttAheadGap = (c_a == 1 ? "-" : "+") + mqttAheadGap.substring(1); }
-          
-          if (myBestMs > 0 && theirBestMs > 0) {
+        }
+
+        if (myLastMs > 0 && theirLastMs > 0) { 
+            c_a = (myLastMs <= theirLastMs) ? 1 : 2; 
+            if (!isLapped) {
+                mqttAheadGap = (c_a == 1 ? "-" : "+") + mqttAheadGap.substring(1); 
+            }
+        }
+        
+        if (myBestMs > 0 && theirBestMs > 0) {
             let diffMsBL = myBestMs - theirBestMs; 
             mqttAheadGapBL = (diffMsBL > 0 ? "+" : "") + (diffMsBL / 1000).toFixed(3);
-          }
+        } else {
+            mqttAheadGapBL = "--";
         }
       }
     } else if (myPos === 1) {
@@ -426,25 +440,36 @@ function updateDashboard(driversList) {
     }
     document.getElementById('driverAhead').innerHTML = stringAhead;
 
-    // BEHIND
+    // === GESTIONE BEHIND ===
     const driverBehind = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos + 1);
     if (driverBehind) {
       stringBehind = formatRivalInfo(driverBehind, myDriver);
       mqttBehind = "#" + (driverBehind.raceno || driverBehind.no || "");
       let theirLastMs = parseTimeToMs(formatLapTime(driverBehind.lasttime || driverBehind.lsTm));
       let theirBestMs = parseTimeToMs(formatLapTime(driverBehind.besttime || driverBehind.btTm));
+      let theirDiffStr = String(driverBehind.gap || driverBehind.df || '0');
 
-      if (myDiffStr.toLowerCase().includes('lap') || String(driverBehind.gap || driverBehind.df || '0').toLowerCase().includes('lap')) {
-        mqttBehindGap = "LAPPED"; mqttBehindGapBL = "LAPPED";
+      let isLapped = isLappedGap(myDiffStr) || isLappedGap(theirDiffStr);
+
+      if (isLapped) {
+        mqttBehindGap = "LAPPED"; 
       } else {
-        let theirDiffFloat = parseFloat(String(driverBehind.gap || driverBehind.df || '0').replace('+', '').replace(',', '.')) || 0;
+        let theirDiffFloat = parseFloat(theirDiffStr.replace('+', '').replace(',', '.')) || 0;
         mqttBehindGap = "+" + Math.abs(myDiffFloat - theirDiffFloat).toFixed(3);
-        if (myLastMs > 0 && theirLastMs > 0) { c_b = (myLastMs <= theirLastMs) ? 1 : 2; mqttBehindGap = (c_b == 1 ? "-" : "+") + mqttBehindGap.substring(1); }
+      }
 
-        if (myBestMs > 0 && theirBestMs > 0) {
-            let diffMsBL = myBestMs - theirBestMs; 
-            mqttBehindGapBL = (diffMsBL > 0 ? "+" : "") + (diffMsBL / 1000).toFixed(3);
-        }
+      if (myLastMs > 0 && theirLastMs > 0) { 
+          c_b = (myLastMs <= theirLastMs) ? 1 : 2; 
+          if (!isLapped) {
+              mqttBehindGap = (c_b == 1 ? "-" : "+") + mqttBehindGap.substring(1); 
+          }
+      }
+
+      if (myBestMs > 0 && theirBestMs > 0) {
+          let diffMsBL = myBestMs - theirBestMs; 
+          mqttBehindGapBL = (diffMsBL > 0 ? "+" : "") + (diffMsBL / 1000).toFixed(3);
+      } else {
+          mqttBehindGapBL = "--";
       }
     } else if (myPos > 0 && driversList.length > 0) {
       stringBehind = '<span class="rival-num" style="color:#888">CLEAR</span>'; mqttBehind = "--"; 
