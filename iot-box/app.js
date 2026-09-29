@@ -15,7 +15,7 @@ if ('wakeLock' in navigator) {
   navigator.wakeLock.request('screen').catch(console.error);
 }
 
-// === NUOVA FUNZIONE: Riconoscimento Doppiaggi ===
+// === Riconoscimento Doppiaggi ===
 function isLappedGap(gapStr) {
   if (!gapStr) return false;
   const s = String(gapStr).toLowerCase();
@@ -61,6 +61,19 @@ window.pairDevice = function() {
       currentDeviceId = "";
       localStorage.removeItem("pitboard_id");
       updatePairingUI();
+      
+      // Invia il segnale di "Sgancio" (UNPAIRED) allo schermo solo se cancelliamo l'ID
+      if (typeof mqttClient !== 'undefined' && isMqttConnected) {
+        const resetLite = JSON.stringify({ 
+          p: "-", gap: "--", 
+          ahead: "--", ahead_html: "-", gap_a: "--", gap_a_bl: "--", time_a_ll: "-", time_a_bl: "-",
+          behind: "--", behind_html: "-", gap_b: "--", gap_b_bl: "--", time_b_ll: "-", time_b_bl: "-",
+          num: "--", time: "--:--", laps: "-", ca: 0, cb: 0, cab: 0, cbb: 2 
+        });
+        const msgResetLite = new Paho.MQTT.Message(resetLite);
+        msgResetLite.destinationName = "pitboard/" + localStorage.getItem("pitboard_id_old") + "/live"; // Serve la cache del vecchio ID se vogliamo farlo bene
+        try { mqttClient.send(msgResetLite); } catch(e) {}
+      }
       return;
   }
 
@@ -167,12 +180,13 @@ function loadNewRace() {
 }
 
 function stopSession() {
+  // PULIZIA SCHERMO PITBOARD: Invia pacchetto vuoto ma cbb resta = 1 (PAIRED)
   if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
     const resetLite = JSON.stringify({ 
       p: "-", gap: "--", 
       ahead: "--", ahead_html: "-", gap_a: "--", gap_a_bl: "--", time_a_ll: "-", time_a_bl: "-",
       behind: "--", behind_html: "-", gap_b: "--", gap_b_bl: "--", time_b_ll: "-", time_b_bl: "-",
-      num: "--", time: "--:--", laps: "-", ca: 0, cb: 0, cab: 0, cbb: 2 
+      num: "--", time: "--:--", laps: "-", ca: 0, cb: 0, cab: 0, cbb: 1 
     });
     const msgResetLite = new Paho.MQTT.Message(resetLite);
     msgResetLite.destinationName = "pitboard/" + currentDeviceId + "/live";
@@ -186,6 +200,8 @@ function stopSession() {
   document.getElementById('raceLinkInput').value = '';
   const numInput = document.getElementById('myRaceNumber');
   if (numInput) { numInput.value = ''; localStorage.removeItem('pit_race_number'); }
+  
+  // Chiama il reset visivo dell'app
   resetDashboard();
 }
 
@@ -193,6 +209,14 @@ function resetDashboard() {
   sessionTimeLeft = "--:--"; myDriverLaps = "-";
   document.getElementById('sessionStatus').innerHTML = '⏱️ Waiting for connection...';
   document.getElementById('driverSelect').innerHTML = '<option value="">Select Rider...</option>';
+  
+  // RESET GRAFICO DELLA WEB APP
+  document.getElementById('pos').innerText = 'P-'; 
+  document.getElementById('driverAhead').innerHTML = '--';
+  document.getElementById('driverBehind').innerHTML = '--'; 
+  document.getElementById('gap').innerText = '--'; 
+  document.getElementById('myDriverNum').innerText = '--';
+
   lastKnownDrivers = []; selectedDriverId = null;
   localStorage.removeItem('pit_driver_id');
   updateDashboard([]); setButtonState('default');
@@ -322,7 +346,6 @@ function formatRivalInfo(driver, myDriver) {
     let myDiffStr = String(myDriver.gap || myDriver.difference || myDriver.df || '0');
     let theirDiffStr = String(driver.gap || driver.difference || driver.df || '0');
     
-    // VERIFICA SE UNO DEI DUE E' DOPPIATO
     let isLapped = isLappedGap(myDiffStr) || isLappedGap(theirDiffStr);
     let prefix = (parseInt(driver.position || driver.pos, 10) < parseInt(myDriver.position || myDriver.pos, 10)) ? "-" : "+";
 
@@ -478,7 +501,6 @@ function updateDashboard(driversList) {
     
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
       
-      // PACCHETTO "LITE"
       const payloadLite = JSON.stringify({
         p: String(myPos), gap: gapText, 
         ahead: mqttAhead, ahead_html: "-", gap_a: mqttAheadGap, gap_a_bl: mqttAheadGapBL, time_a_ll: "-", time_a_bl: "-",
@@ -490,7 +512,6 @@ function updateDashboard(driversList) {
       msgLite.destinationName = "pitboard/" + currentDeviceId + "/live";
       try { mqttClient.send(msgLite); } catch(e) {}
 
-      // PACCHETTO "FULL"
       const payloadFull = JSON.stringify({
         p: String(myPos), gap: gapText, ahead: mqttAhead, ahead_html: stringAhead,
         behind: mqttBehind, behind_html: stringBehind, num: myNumText, time: sessionTimeLeft, laps: String(myDriverLaps)
@@ -501,6 +522,7 @@ function updateDashboard(driversList) {
     }
 
   } else {
+    // SEZIONE DI FALLBACK SE IL DRIVER NON VIENE TROVATO (Ma vogliamo che rimanga paired)
     document.getElementById('pos').innerText = 'P-'; document.getElementById('driverAhead').innerHTML = '--';
     document.getElementById('driverBehind').innerHTML = '--'; document.getElementById('gap').innerText = '--'; document.getElementById('myDriverNum').innerText = '--';
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
@@ -508,7 +530,7 @@ function updateDashboard(driversList) {
         p: "-", gap: "--", 
         ahead: "--", ahead_html: "-", gap_a: "--", gap_a_bl: "--", time_a_ll: "-", time_a_bl: "-",
         behind: "--", behind_html: "-", gap_b: "--", gap_b_bl: "--", time_b_ll: "-", time_b_bl: "-",
-        num: "--", time: "--:--", laps: "-", ca: 0, cb: 0, cab: 0, cbb: 2 
+        num: "--", time: "--:--", laps: "-", ca: 0, cb: 0, cab: 0, cbb: 1 // QUI ORA È 1!
       });
       const msgResetLite = new Paho.MQTT.Message(resetLite);
       msgResetLite.destinationName = "pitboard/" + currentDeviceId + "/live";
