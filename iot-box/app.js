@@ -1,4 +1,5 @@
 let selectedDriverId = localStorage.getItem('pit_driver_id') || null;
+let selectedTargetId = localStorage.getItem('pit_target_id') || null; // NUOVO: ID del Target
 let currentRaceId = localStorage.getItem('pit_race_id') || null;
 let ws = null; 
 let lastKnownDrivers = []; 
@@ -62,7 +63,6 @@ window.pairDevice = function() {
       localStorage.removeItem("pitboard_id");
       updatePairingUI();
       
-      // Invia il segnale di "Sgancio" (UNPAIRED) allo schermo solo se cancelliamo l'ID
       if (typeof mqttClient !== 'undefined' && isMqttConnected) {
         const resetLite = JSON.stringify({ 
           p: "-", gap: "--", 
@@ -71,7 +71,7 @@ window.pairDevice = function() {
           num: "--", time: "--:--", laps: "-", ca: 0, cb: 0, cab: 0, cbb: 2 
         });
         const msgResetLite = new Paho.MQTT.Message(resetLite);
-        msgResetLite.destinationName = "pitboard/" + localStorage.getItem("pitboard_id_old") + "/live"; // Serve la cache del vecchio ID se vogliamo farlo bene
+        msgResetLite.destinationName = "pitboard/" + localStorage.getItem("pitboard_id_old") + "/live"; 
         try { mqttClient.send(msgResetLite); } catch(e) {}
       }
       return;
@@ -180,7 +180,6 @@ function loadNewRace() {
 }
 
 function stopSession() {
-  // PULIZIA SCHERMO PITBOARD: Invia pacchetto vuoto ma cbb resta = 1 (PAIRED)
   if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
     const resetLite = JSON.stringify({ 
       p: "-", gap: "--", 
@@ -201,7 +200,6 @@ function stopSession() {
   const numInput = document.getElementById('myRaceNumber');
   if (numInput) { numInput.value = ''; localStorage.removeItem('pit_race_number'); }
   
-  // Chiama il reset visivo dell'app
   resetDashboard();
 }
 
@@ -217,8 +215,9 @@ function resetDashboard() {
   document.getElementById('gap').innerText = '--'; 
   document.getElementById('myDriverNum').innerText = '--';
 
-  lastKnownDrivers = []; selectedDriverId = null;
+  lastKnownDrivers = []; selectedDriverId = null; selectedTargetId = null;
   localStorage.removeItem('pit_driver_id');
+  localStorage.removeItem('pit_target_id');
   updateDashboard([]); setButtonState('default');
 }
 
@@ -232,8 +231,20 @@ function changeDriver() {
   if (typeof sendConfigToLilyGO === "function") sendConfigToLilyGO();
 }
 
+function changeTarget() {
+  const selectElement = document.getElementById('targetSelect'); // NUOVO
+  if(!selectElement) return;
+  const newId = selectElement.value;
+  selectedTargetId = newId;
+  if(newId) localStorage.setItem('pit_target_id', newId);
+  else localStorage.removeItem('pit_target_id');
+  
+  if (lastKnownDrivers.length > 0) updateDashboard(lastKnownDrivers);
+}
+
 document.addEventListener('change', function(event) {
   if (event.target && event.target.id === 'driverSelect') changeDriver();
+  if (event.target && event.target.id === 'targetSelect') changeTarget(); // NUOVO
 });
 
 function connectTime2Race() {
@@ -262,6 +273,7 @@ function connectTime2Race() {
         });
         lastKnownDrivers.sort((a, b) => parseInt(a.position || a.pos || 9999) - parseInt(b.position || b.pos || 9999));
         populateDriverDropdown(lastKnownDrivers);
+        populateTargetDropdown(lastKnownDrivers); // NUOVO
         updateDashboard(lastKnownDrivers);
       }
     } catch (err) {}
@@ -319,6 +331,7 @@ async function connectMylaps(sessionId) {
                  });
                  lastKnownDrivers.sort((a, b) => parseInt(a.position || 9999) - parseInt(b.position || 9999));
                  populateDriverDropdown(lastKnownDrivers);
+                 populateTargetDropdown(lastKnownDrivers); // NUOVO
                  updateDashboard(lastKnownDrivers);
                }
             }
@@ -380,6 +393,37 @@ function formatRivalInfo(driver, myDriver) {
   `;
 }
 
+// === NUOVO: Popola il menu a tendina per il Target ===
+function populateTargetDropdown(drivers) {
+  const select = document.getElementById('targetSelect');
+  if (!select) return;
+  if (select.options.length <= 1 && drivers.length > 0) {
+    select.innerHTML = '<option value="">Select Target...</option>';
+    drivers.forEach(d => {
+      const opt = document.createElement('option'); opt.value = getDriverId(d); 
+      const num = d.raceno || d.no || ''; const name = d.fullname || d.nickname || d.nam || `Rider ${getDriverId(d)}`;
+      opt.textContent = num ? `#${num} ${name}` : name;
+      if (String(opt.value) === String(selectedTargetId)) opt.selected = true;
+      select.appendChild(opt);
+    });
+  }
+}
+
+function populateDriverDropdown(drivers) {
+  const select = document.getElementById('driverSelect');
+  if (select.options.length <= 1 && drivers.length > 0) {
+    select.innerHTML = '<option value="">Select Rider...</option>';
+    drivers.forEach(d => {
+      const opt = document.createElement('option'); opt.value = getDriverId(d); 
+      const num = d.raceno || d.no || ''; const name = d.fullname || d.nickname || d.nam || `Rider ${getDriverId(d)}`;
+      opt.textContent = num ? `#${num} ${name}` : name;
+      if (String(opt.value) === String(selectedDriverId)) opt.selected = true;
+      select.appendChild(opt);
+    });
+    updateDashboard(drivers);
+  }
+}
+
 function updateDashboard(driversList) {
   const numInput = document.getElementById('myRaceNumber');
   if (numInput && !selectedDriverId && driversList.length > 0) {
@@ -395,6 +439,9 @@ function updateDashboard(driversList) {
 
   if (!selectedDriverId) return;
   const myDriver = driversList.find(d => String(getDriverId(d)) === String(selectedDriverId));
+  
+  // === RECUPERA DATI TARGET ===
+  const myTarget = selectedTargetId ? driversList.find(d => String(getDriverId(d)) === String(selectedTargetId)) : null;
 
   if (myDriver) {
     myDriverLaps = myDriver.laps || '-'; updateBanner();
@@ -419,11 +466,43 @@ function updateDashboard(driversList) {
     document.getElementById('myDriverNum').innerText = myNumText;
 
     let myLastMs = parseTimeToMs(formatLapTime(myDriver.lasttime || myDriver.lsTm));
+    let myLastStr = formatLapTime(myDriver.lasttime || myDriver.lsTm); // PER PAGINA 3
+    let myBestStr = formatLapTime(myDriver.besttime || myDriver.btTm); // PER PAGINA 3
+
     let stringAhead = '--'; let mqttAhead = '--'; let mqttAheadGap = '--'; let mqttAheadGapBL = '--'; let c_a = 0;
     let stringBehind = '--'; let mqttBehind = '--'; let mqttBehindGap = '--'; let mqttBehindGapBL = '--'; let c_b = 0;
 
     let myDiffStr = String(myDriver.gap || myDriver.difference || myDriver.df || '0');
     let myDiffFloat = parseFloat(myDiffStr.replace('+', '').replace(',', '.')) || 0;
+
+    // === ELABORAZIONE TARGET HUNT (PAGINA 3 ESP) ===
+    let t_pos = "--", t_num = "--", t_last = "--", t_best = "--", t_pace_delta = "--", t_total_gap = "--";
+    let flag_catch = 0; // 0=None, 1=Catching(Verde), 2=Losing(Rosso)
+
+    if(myTarget) {
+      t_pos = "P" + (myTarget.position || myTarget.pos || "-");
+      t_num = "#" + (myTarget.raceno || myTarget.no || "-");
+      t_last = formatLapTime(myTarget.lasttime || myTarget.lsTm);
+      t_best = formatLapTime(myTarget.besttime || myTarget.btTm);
+
+      let targetLastMs = parseTimeToMs(t_last);
+      if (myLastMs > 0 && targetLastMs > 0) {
+        let diffMs = myLastMs - targetLastMs;
+        t_pace_delta = (diffMs > 0 ? "+" : "") + (diffMs / 1000).toFixed(3);
+        flag_catch = (diffMs <= 0) ? 1 : 2; // 1 = Verde (Catching), 2 = Rosso (Losing)
+      }
+
+      let theirDiffStr = String(myTarget.gap || myTarget.difference || myTarget.df || '0');
+      let theirDiffFloat = parseFloat(theirDiffStr.replace('+', '').replace(',', '.')) || 0;
+      if (!isLappedGap(myDiffStr) && !isLappedGap(theirDiffStr)) {
+        let prefix = (parseInt(myTarget.position || myTarget.pos, 10) < myPos) ? "-" : "+";
+        let absGap = Math.abs(myDiffFloat - theirDiffFloat).toFixed(3);
+        t_total_gap = prefix + absGap;
+      } else {
+        t_total_gap = "LAPPED";
+      }
+    }
+
 
     // === GESTIONE AHEAD ===
     if (myPos > 1) {
@@ -503,10 +582,10 @@ function updateDashboard(driversList) {
       
       const payloadLite = JSON.stringify({
         p: String(myPos), gap: gapText, 
-        ahead: mqttAhead, ahead_html: "-", gap_a: mqttAheadGap, gap_a_bl: mqttAheadGapBL, time_a_ll: "-", time_a_bl: "-",
-        behind: mqttBehind, behind_html: "-", gap_b: mqttBehindGap, gap_b_bl: mqttBehindGapBL, time_b_ll: "-", time_b_bl: "-",
-        num: myNumText, time: sessionTimeLeft, laps: String(myDriverLaps),
-        ca: c_a, cb: c_b, cab: 0, cbb: 1
+        ahead: mqttAhead, ahead_html: myLastStr, gap_a: mqttAheadGap, gap_a_bl: mqttAheadGapBL, time_a_ll: t_last, time_a_bl: t_best,
+        behind: t_total_gap, behind_html: t_pace_delta, gap_b: mqttBehindGap, gap_b_bl: mqttBehindGapBL, time_b_ll: t_pos, time_b_bl: t_num,
+        num: myNumText, time: myBestStr, laps: String(myDriverLaps),
+        ca: c_a, cb: c_b, cab: flag_catch, cbb: 1
       });
       const msgLite = new Paho.MQTT.Message(payloadLite);
       msgLite.destinationName = "pitboard/" + currentDeviceId + "/live";
@@ -522,7 +601,6 @@ function updateDashboard(driversList) {
     }
 
   } else {
-    // SEZIONE DI FALLBACK SE IL DRIVER NON VIENE TROVATO (Ma vogliamo che rimanga paired)
     document.getElementById('pos').innerText = 'P-'; document.getElementById('driverAhead').innerHTML = '--';
     document.getElementById('driverBehind').innerHTML = '--'; document.getElementById('gap').innerText = '--'; document.getElementById('myDriverNum').innerText = '--';
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
@@ -530,27 +608,12 @@ function updateDashboard(driversList) {
         p: "-", gap: "--", 
         ahead: "--", ahead_html: "-", gap_a: "--", gap_a_bl: "--", time_a_ll: "-", time_a_bl: "-",
         behind: "--", behind_html: "-", gap_b: "--", gap_b_bl: "--", time_b_ll: "-", time_b_bl: "-",
-        num: "--", time: "--:--", laps: "-", ca: 0, cb: 0, cab: 0, cbb: 1 // QUI ORA È 1!
+        num: "--", time: "--:--", laps: "-", ca: 0, cb: 0, cab: 0, cbb: 1 
       });
       const msgResetLite = new Paho.MQTT.Message(resetLite);
       msgResetLite.destinationName = "pitboard/" + currentDeviceId + "/live";
       try { mqttClient.send(msgResetLite); } catch(e) {}
     }
-  }
-}
-
-function populateDriverDropdown(drivers) {
-  const select = document.getElementById('driverSelect');
-  if (select.options.length <= 1 && drivers.length > 0) {
-    select.innerHTML = '<option value="">Select Rider...</option>';
-    drivers.forEach(d => {
-      const opt = document.createElement('option'); opt.value = getDriverId(d); 
-      const num = d.raceno || d.no || ''; const name = d.fullname || d.nickname || d.nam || `Rider ${getDriverId(d)}`;
-      opt.textContent = num ? `#${num} ${name}` : name;
-      if (String(opt.value) === String(selectedDriverId)) opt.selected = true;
-      select.appendChild(opt);
-    });
-    updateDashboard(drivers);
   }
 }
 
