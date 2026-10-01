@@ -492,14 +492,15 @@ function updateDashboard(driversList) {
         flag_catch = (diffMs <= 0) ? 1 : 2; // 1 = Verde (Catching), 2 = Rosso (Losing)
       }
 
-      let theirDiffStr = String(myTarget.gap || myTarget.difference || myTarget.df || '0');
-      let theirDiffFloat = parseFloat(theirDiffStr.replace('+', '').replace(',', '.')) || 0;
-      if (!isLappedGap(myDiffStr) && !isLappedGap(theirDiffStr)) {
-        let prefix = (parseInt(myTarget.position || myTarget.pos, 10) < myPos) ? "-" : "+";
-        let absGap = Math.abs(myDiffFloat - theirDiffFloat).toFixed(3);
-        t_total_gap = prefix + absGap;
+      // Calcolo Delta tra i Best Lap (Mio Best vs Target Best)
+      let targetBestMs = parseTimeToMs(t_best);
+      if (myBestMs > 0 && targetBestMs > 0) {
+        let bestDiffMs = myBestMs - targetBestMs;
+        // Se il tuo best è più alto, sei più lento (+), se è più basso sei più veloce (-)
+        let prefix = (bestDiffMs > 0) ? "+" : ""; 
+        t_total_gap = prefix + (bestDiffMs / 1000).toFixed(3);
       } else {
-        t_total_gap = "LAPPED";
+        t_total_gap = "--";
       }
     }
 
