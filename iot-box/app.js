@@ -14,11 +14,6 @@ let isMqttConnected = false;
 // Variabile di stato per distinguere Gara / Qualifica (se non è gara, assumiamo Time Attack/Qualifica)
 let isRaceSession = false;
 
-// Anti-standby per il telefono
-if ('wakeLock' in navigator) {
-  navigator.wakeLock.request('screen').catch(console.error);
-}
-
 // === Riconoscimento Doppiaggi ===
 function isLappedGap(gapStr) {
   if (!gapStr) return false;
@@ -508,7 +503,7 @@ function updateDashboard(driversList) {
 
     // === ELABORAZIONE TARGET HUNT (PAGINA 3 ESP) ===
     let t_pos = "--", t_num = "--", t_last = "--", t_best = "--", t_pace_delta = "--", t_total_gap = "--";
-    let flag_catch = 0; // 0=None, 1=Catching(Verde), 2=Losing(Rosso)
+    let flag_catch = 0; // 0=None, 1=Catching(Verde/Rosso), 2=Losing(Rosso/Arancio)
 
     if(myTarget) {
       t_pos = "P" + (myTarget.position || myTarget.pos || "-");
@@ -734,3 +729,35 @@ window.sendCustomMessage = function() {
 };
 
 connectMQTT();
+
+// === FULLSCREEN E ANTI-STANDBY (WAKELOCK) COMPATIBILITÀ TOTALE ===
+let wakeLock = null; 
+const requestFullScreenAndWakeLock = async () => { 
+  try { 
+    let docEl = document.documentElement;
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) { 
+      if (docEl.requestFullscreen) { 
+        await docEl.requestFullscreen(); 
+      } else if (docEl.webkitRequestFullscreen) { /* Safari / iOS */
+        await docEl.webkitRequestFullscreen(); 
+      } else if (docEl.msRequestFullscreen) { /* Windows */
+        await docEl.msRequestFullscreen();
+      }
+    } 
+  } catch (err) {} 
+
+  try { 
+    if ('wakeLock' in navigator) {
+      wakeLock = await navigator.wakeLock.request('screen'); 
+    }
+  } catch (err) {} 
+}; 
+  
+document.body.addEventListener('click', requestFullScreenAndWakeLock); 
+document.body.addEventListener('touchstart', requestFullScreenAndWakeLock); 
+
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible') {
+    await requestFullScreenAndWakeLock();
+  }
+});
