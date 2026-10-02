@@ -1,64 +1,112 @@
-<!DOCTYPE html> 
-<html lang="it"> 
-<head> 
-  <meta charset="UTF-8"> 
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"> 
-   
-  <!-- META TAG PER FARLO SEMBRARE UN'APP (Se lo salvi nella Home, sparisce Chrome!) --> 
-  <meta name="apple-mobile-web-app-capable" content="yes"> 
-  <meta name="mobile-web-app-capable" content="yes"> 
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"> 
-  <meta name="theme-color" content="#000000"> 
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  
+  <!-- META TAG PER FARLO SEMBRARE UN'APP (Se lo salvi nella Home, sparisce Chrome!) -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#000000">
 
-  <title>Pitboard Live Simulator</title> 
-   
-  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script> 
+  <title>Pitboard Live Simulator</title>
+  
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 
-  <style> 
-    * { box-sizing: border-box; margin: 0; padding: 0; } 
-     
-    body {  
-      background-color: #000;  
-      color: #fff;  
-      font-family: 'Arial Black', sans-serif;  
-      height: 100vh; /* Fallback per vecchi telefoni */ 
-      height: 100dvh; /* Magia per la barra degli indirizzi dinamica */ 
-      display: flex;  
-      flex-direction: column;  
-      overflow: hidden;  
-      user-select: none;  
-    } 
-     
-    .status-bar { height: 28px; background-color: #222; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; font-size: 0.8rem; color: #aaa; font-weight: bold; } 
-    .sim-id { color: #06b6d4; font-size: 0.9rem; font-weight: 900; letter-spacing: 1px; } 
-    .session-info { color: #fff; font-size: 0.9rem; } 
-     
-    .dashboard { flex: 1; display: flex; flex-direction: column; padding: 10px; gap: 10px; } 
-    .row-top { display: flex; flex: 1; gap: 10px; } 
-    .box { border: 3px solid #333; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; } 
-    .box-half { flex: 1; } 
-    .box-full { flex: 1; display: flex; flex-direction: column; } 
-    .title { position: absolute; top: 10px; color: #777; font-size: 1.1rem; font-weight: 900; letter-spacing: 1px; } 
-    .val-pos { color: #ffcc00; font-size: 6rem; font-weight: bold; margin-top: 15px; } 
-    .val-gap { color: #ef4444; font-size: 4.5rem; font-weight: bold; margin-top: 15px; } 
-     
-    .track-pos-container { display: flex; width: 100%; justify-content: space-around; align-items: center; margin-top: 25px; } 
-    .track-col { display: flex; flex-direction: column; align-items: center; } 
-    .track-title { color: #555; font-size: 1rem; font-weight: bold; margin-bottom: 5px; } 
-    .val-track { color: #06b6d4; font-size: 2.5rem; font-weight: bold; text-align: center; } 
-     
-    .arrows { display: flex; align-items: center; gap: 15px; font-size: 3rem; color: #ffcc00; } 
-    .dashes { color: #fff; font-size: 2.8rem; font-weight: bold; letter-spacing: 2px; } 
-     
-    .rival { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; line-height: 1.1; margin-top: 0; width: 100%; } 
-    .rival-num { color: #fff; font-size: 2rem; } 
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    body { 
+      background-color: #000; 
+      color: #fff; 
+      font-family: 'Arial Black', sans-serif; 
+      height: 100vh; 
+      height: 100dvh; 
+      display: flex; 
+      flex-direction: column; 
+      overflow: hidden; 
+      user-select: none; 
+    }
+    
+    .status-bar { height: 28px; background-color: #222; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; font-size: 0.8rem; color: #aaa; font-weight: bold; }
+    .sim-id { color: #06b6d4; font-size: 0.9rem; font-weight: 900; letter-spacing: 1px; }
+    .session-info { color: #fff; font-size: 0.9rem; }
 
-    /* POPUP CON BORDO NERO PER LEGGIBILITA SU TUTTI I COLORI */
+    /* SELETTORE SCHERMATE (TABS) */
+    .tabs { display: flex; width: 100%; gap: 10px; padding: 8px 10px 0 10px; }
+    .tab-btn { flex: 1; padding: 10px; background: #222; color: #888; font-size: 1rem; border: 2px solid #333; border-radius: 8px; transition: 0.2s; font-family: 'Arial Black', sans-serif; text-transform: uppercase; cursor: pointer; }
+    .tab-btn.active { background: #ffcc00; color: #000; border-color: #ffcc00; }
+
+    .view-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* =========================================
+       SCHERMATA 1: RACE MODE (Griglia classica)
+       ========================================= */
+    #view-race { flex: 1; display: flex; flex-direction: column; padding: 10px; gap: 10px; }
+    .row-top { display: flex; flex: 1; gap: 10px; }
+    .box { border: 3px solid #333; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; background: #000; }
+    .box-half { flex: 1; }
+    .box-full { flex: 1; display: flex; flex-direction: column; }
+    .title { position: absolute; top: 10px; color: #777; font-size: 1.1rem; font-weight: 900; letter-spacing: 1px; }
+    .val-pos { color: #ffcc00; font-size: 6rem; font-weight: bold; margin-top: 15px; }
+    .val-gap { color: #ef4444; font-size: 4.5rem; font-weight: bold; margin-top: 15px; }
+    
+    .track-pos-container { display: flex; width: 100%; justify-content: space-around; align-items: center; margin-top: 25px; }
+    .track-col { display: flex; flex-direction: column; align-items: center; }
+    .track-title { color: #555; font-size: 1rem; font-weight: bold; margin-bottom: 5px; }
+    .val-track { color: #06b6d4; font-size: 2.5rem; font-weight: bold; text-align: center; }
+    
+    .arrows { display: flex; align-items: center; gap: 15px; font-size: 3rem; color: #ffcc00; }
+    .dashes { color: #fff; font-size: 2.8rem; font-weight: bold; letter-spacing: 2px; }
+    
+    .rival { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; line-height: 1.1; margin-top: 0; width: 100%; }
+    .rival-num { color: #fff; font-size: 2rem; }
+
+    /* =========================================
+       SCHERMATA 2: TARGET HUNT (Nuovo Design)
+       ========================================= */
+    #view-target { display: none; flex-direction: column; height: 100%; padding: 10px; gap: 10px; }
+    
+    .th-top { display: flex; flex: 1.3; gap: 10px; }
+    
+    /* Box ME (Grigio chiaro) */
+    .th-me { flex: 0.8; background: #ddd; color: #000; border: 3px solid #888; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
+    .th-title-me { position: absolute; top: 10px; left: 10px; font-size: 1.2rem; font-weight: 900; }
+    .th-me-pos { font-size: 6.5rem; font-weight: bold; margin-top: 10px; }
+
+    /* Box TARGET (Nero) */
+    .th-tgt { flex: 2.2; background: #111; color: #fff; border: 3px solid #444; border-radius: 12px; display: flex; align-items: center; position: relative; padding: 10px; }
+    .th-title-tgt { position: absolute; top: 10px; left: 10px; font-size: 1.2rem; color: #aaa; font-weight: 900; }
+    .th-tgt-num { position: absolute; top: 10px; right: 15px; font-size: 1.5rem; color: #fff; }
+    .th-tgt-pos { font-size: 6.5rem; color: #ffcc00; margin-left: 20px; font-weight: bold; }
+    .th-times { margin-left: auto; margin-right: 15px; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; height: 100%; }
+    .th-time-l { font-size: 2.5rem; color: #fff; }
+    .th-time-b { font-size: 1.8rem; color: #00ffff; margin-top: 5px; }
+
+    /* Box Centrale B-GAP (Incastrato a ponte) */
+    .th-mid { display: flex; justify-content: center; margin-top: -25px; margin-bottom: -15px; z-index: 10; }
+    .th-bgap-box { background: #111; border: 3px solid #555; padding: 5px 20px; border-radius: 8px; font-size: 1.8rem; color: #fff; }
+
+    /* Banner Inferiore STATUS */
+    .th-bot { flex: 1; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; padding: 0 20px; background: #222; }
+    .th-bot-left { display: flex; flex-direction: column; }
+    .th-bot-status { font-size: 3rem; font-weight: 900; }
+    .th-bot-pace { font-size: 1.2rem; font-weight: bold; }
+    .th-bot-val { font-size: 5.5rem; font-weight: bold; }
+
+    /* POPUP CON BORDO NERO */
     #popup { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 9999; font-size: 8rem; font-weight: 900; text-transform: uppercase; text-align: center; color: #fff; text-shadow: 4px 4px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000; } 
 
-    /* COMPRESSIONE ESTREMA PER TELEFONI ORIZZONTALI */ 
+    /* =========================================
+       MEDIA QUERIES PER TELEFONI PICCOLI/ORIZZONTALI
+       ========================================= */
     @media (max-height: 600px) { 
-      .dashboard { padding: 4px; gap: 4px; } 
+      .tabs { padding-top: 4px; gap: 8px; margin-bottom: -5px; }
+      .tab-btn { padding: 6px; font-size: 0.9rem; }
+      
+      /* Race Mode compatta */
+      #view-race { padding: 4px; gap: 4px; } 
       .box { border-width: 2px; border-radius: 8px; } 
       .title { font-size: 0.8rem; top: 2px; } 
       .val-pos { font-size: 4.5rem; margin-top: 10px; } 
@@ -67,16 +115,29 @@
       .track-title { font-size: 0.75rem; margin-bottom: 2px; } 
       .arrows { font-size: 1.8rem; gap: 10px; } 
       .dashes { font-size: 2rem; } 
-       
       .rival .rival-num { font-size: 1.5rem !important; } 
       .rival > span:nth-child(2) { font-size: 0.95rem !important; margin: 0 !important; } 
-      .rival div {  
-        padding: 4px !important;  
-        margin-top: 2px !important;  
-        font-size: 0.9rem !important;  
-        min-width: 130px !important;  
-        gap: 1px !important;  
-      } 
+      .rival div { padding: 4px !important; margin-top: 2px !important; font-size: 0.9rem !important; min-width: 130px !important; gap: 1px !important; } 
+      
+      /* Target Hunt compatta */
+      #view-target { padding: 4px; gap: 4px; margin-top: 5px;}
+      .th-top { gap: 4px; }
+      .th-me { border-width: 2px; }
+      .th-tgt { border-width: 2px; padding: 5px; }
+      .th-title-me, .th-title-tgt { font-size: 0.9rem; top: 5px; }
+      .th-tgt-num { font-size: 1rem; top: 5px; }
+      .th-me-pos { font-size: 4.5rem; margin-top: 15px; }
+      .th-tgt-pos { font-size: 4.5rem; margin-left: 10px;}
+      .th-time-l { font-size: 1.8rem; }
+      .th-time-b { font-size: 1.3rem; margin-top: 2px;}
+      
+      .th-mid { margin-top: -15px; margin-bottom: -10px; }
+      .th-bgap-box { font-size: 1.3rem; padding: 2px 15px; border-width: 2px; }
+      
+      .th-bot { padding: 0 15px; }
+      .th-bot-status { font-size: 2.2rem; }
+      .th-bot-pace { font-size: 1rem; }
+      .th-bot-val { font-size: 4rem; }
     } 
   </style> 
 </head> 
@@ -88,33 +149,88 @@
     <span class="session-info">⏱ <span id="ui-time" style="color:#22c55e;">--:--</span> | 🔄 <span id="ui-laps" style="color:#3b82f6;">-</span></span> 
   </div> 
 
-  <div class="dashboard"> 
-    <div class="row-top"> 
-      <div class="box box-half"> 
-        <div class="title">POSITION</div> 
-        <div class="val-pos" id="ui-pos">P-</div> 
+  <!-- MENU SELEZIONE SCHERMATA -->
+  <div class="tabs">
+    <button id="btnRace" class="tab-btn active" onclick="switchTab('race')">RACE MODE</button>
+    <button id="btnTarget" class="tab-btn" onclick="switchTab('target')">TARGET HUNT</button>
+  </div>
+
+  <div class="view-container">
+
+    <!-- SCHERMATA 1: RACE MODE -->
+    <div id="view-race"> 
+      <div class="row-top"> 
+        <div class="box box-half"> 
+          <div class="title">POSITION</div> 
+          <div class="val-pos" id="ui-pos">P-</div> 
+        </div> 
+        <div class="box box-half"> 
+          <div class="title">BEST LAP DELTA</div> 
+          <div class="val-gap" id="ui-gap">--</div> 
+        </div> 
       </div> 
-      <div class="box box-half"> 
-        <div class="title">BEST LAP DELTA</div> 
-        <div class="val-gap" id="ui-gap">--</div> 
+      <div class="box box-full"> 
+        <div class="title">TRACK POSITION</div> 
+        <div class="track-pos-container"> 
+          <div class="track-col"><div class="track-title">BEHIND</div><div class="rival val-track" id="ui-behind">--</div></div> 
+          <div class="arrows"><span>&#9664;</span><span class="dashes" id="ui-num">--</span><span>&#9654;</span></div> 
+          <div class="track-col"><div class="track-title">AHEAD</div><div class="rival val-track" id="ui-ahead">--</div></div> 
+        </div> 
       </div> 
     </div> 
-    <div class="box box-full"> 
-      <div class="title">TRACK POSITION</div> 
-      <div class="track-pos-container"> 
-         
-        <div class="track-col"><div class="track-title">BEHIND</div><div class="rival val-track" id="ui-behind">--</div></div> 
-         
-        <div class="arrows"><span>&#9664;</span><span class="dashes" id="ui-num">--</span><span>&#9654;</span></div> 
-         
-        <div class="track-col"><div class="track-title">AHEAD</div><div class="rival val-track" id="ui-ahead">--</div></div> 
-      </div> 
-    </div> 
-  </div> 
+
+    <!-- SCHERMATA 2: TARGET HUNT -->
+    <div id="view-target">
+      <div class="th-top">
+        <div class="th-me">
+          <div class="th-title-me">ME</div>
+          <div id="th-me-pos" class="th-me-pos">P-</div>
+        </div>
+        <div class="th-tgt">
+          <div class="th-title-tgt">TARGET</div>
+          <div id="th-tgt-num" class="th-tgt-num">#--</div>
+          <div id="th-tgt-pos" class="th-tgt-pos">P-</div>
+          <div class="th-times">
+            <div id="th-tgt-l" class="th-time-l">L: --:--.---</div>
+            <div id="th-tgt-b" class="th-time-b">B: --:--.---</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="th-mid">
+        <div id="th-bgap" class="th-bgap-box">B-GAP: --</div>
+      </div>
+
+      <div id="th-banner" class="th-bot">
+        <div class="th-bot-left">
+          <div id="th-banner-text" class="th-bot-status">-</div>
+          <div id="th-banner-pace" class="th-bot-pace">PACE</div>
+        </div>
+        <div id="th-banner-val" class="th-bot-val">-.---</div>
+      </div>
+    </div>
+
+  </div> <!-- Fine View Container -->
 
   <div id="popup">MSG</div> 
 
   <script> 
+    // FUNZIONE DI CAMBIO SCHERMATA
+    function switchTab(tabName) {
+      document.getElementById('btnRace').classList.remove('active');
+      document.getElementById('btnTarget').classList.remove('active');
+      document.getElementById('view-race').style.display = 'none';
+      document.getElementById('view-target').style.display = 'none';
+
+      if (tabName === 'race') {
+        document.getElementById('btnRace').classList.add('active');
+        document.getElementById('view-race').style.display = 'flex';
+      } else {
+        document.getElementById('btnTarget').classList.add('active');
+        document.getElementById('view-target').style.display = 'flex';
+      }
+    }
+
     // Mantiene l'ID costante se il telefono ricarica la pagina per errore
     let simId = localStorage.getItem('pitboardSimId');
     if (!simId) {
@@ -128,7 +244,7 @@
 
     const brokerUrl = "wss://broker.hivemq.com:8884/mqtt"; 
     const clientId = "Sim_Web_" + parseInt(Math.random() * 100000); 
-     
+      
     const statusEl = document.getElementById('connStatus'); 
     statusEl.innerText = "🟡 CONNESSIONE 4G..."; 
     statusEl.style.color = "#ffcc00"; 
@@ -163,14 +279,13 @@
       try { 
         const payload = message.toString(); 
         const data = JSON.parse(payload); 
-         
+          
         if (topic === topicCommand) { 
           const popup = document.getElementById('popup'); 
           popup.innerText = data.cmd || "ERROR"; 
           popup.style.backgroundColor = data.color || "#000"; 
-          // Il colore del testo rimane bianco con bordo nero (text-shadow via CSS)
           popup.style.display = "flex"; 
-           
+            
           if (popupTimer) clearTimeout(popupTimer); 
           popupTimer = setTimeout(() => { popup.style.display = "none"; }, 4000); 
         } 
@@ -184,30 +299,45 @@
               document.getElementById('ui-num').innerHTML = "--"; 
               document.getElementById('ui-time').innerHTML = "--:--"; 
               document.getElementById('ui-laps').innerHTML = "-";
+
+              // Reset anche di Target Hunt
+              document.getElementById('th-me-pos').innerHTML = "P-";
+              document.getElementById('th-tgt-num').innerHTML = "#--";
+              document.getElementById('th-tgt-pos').innerHTML = "P-";
+              document.getElementById('th-tgt-l').innerHTML = "L: --:--.---";
+              document.getElementById('th-tgt-b').innerHTML = "B: --:--.---";
+              document.getElementById('th-bgap').innerHTML = "B-GAP: --";
+              document.getElementById('th-banner-text').innerHTML = "-";
+              document.getElementById('th-banner-val').innerHTML = "-.---";
+              document.getElementById('th-banner').style.backgroundColor = "#222";
               return;
           }
 
           if (document.getElementById('popup').style.display === "flex") return; 
-           
+            
+          /* --- AGGIORNAMENTO DATI COMUNI --- */
           let posText = "P-"; 
-          if (data.p && data.p !== "-" && data.p !== "0") { 
-            posText = "P" + data.p; 
-          } 
-           
+          if (data.p && data.p !== "-" && data.p !== "0") { posText = "P" + data.p; } 
+          document.getElementById('ui-num').innerHTML = data.num || "--"; 
+          document.getElementById('ui-time').innerHTML = data.time || "--:--"; 
+          document.getElementById('ui-laps').innerHTML = data.laps || "-"; 
+
+          /* --- AGGIORNAMENTO RACE MODE (Griglia 2x2) --- */
           document.getElementById('ui-pos').innerHTML = posText; 
-          document.getElementById('ui-gap').innerHTML = data.gap || "--"; 
-           
+          
+          let gapColor = "#fff";
+          if(data.gap && data.gap.startsWith("+")) gapColor = "#ff9900"; // Arancione Moto GP
+          else if(data.gap && data.gap.startsWith("-")) gapColor = "#ef4444"; // Rosso Moto GP
+          document.getElementById('ui-gap').innerHTML = `<span style="color:${gapColor}">${data.gap || "--"}</span>`; 
+            
           function buildSmartBox(name, htmlString, tL, gL, tB, gB, cL, cB) { 
-            if (htmlString && htmlString !== "--" && htmlString !== "-" && htmlString.trim() !== "") { 
-              return htmlString; 
-            } 
-             
+            if (htmlString && htmlString !== "--" && htmlString !== "-" && htmlString.trim() !== "") { return htmlString; } 
             if (!name || name === "--" || name === "-" || name === "CLEAR") return `<span style="color:#888; font-size:2rem;">${name || "--"}</span>`; 
             if (name === "LEADER") return `<span style="color:#ffcc00; font-size:2rem;">LEADER</span><br><span style="font-size: 1.8rem;">🥇</span>`; 
-             
-            let colorL = (cL === 1) ? '#22c55e' : (cL === 2 ? '#ef4444' : '#666'); 
-            let colorB = (cB === 1) ? '#22c55e' : (cB === 2 ? '#ef4444' : '#666'); 
-             
+              
+            let colorL = (cL === 1) ? '#ef4444' : (cL === 2 ? '#ff9900' : '#666'); // Colori Moto GP (Catching=Rosso, Losing=Arancio)
+            let colorB = (cB === 1) ? '#ef4444' : (cB === 2 ? '#ff9900' : '#666'); 
+              
             return ` 
               <span class="rival-num">${name}</span> 
               <div style="display:flex; flex-direction:column; gap:4px; font-size:1.1rem; font-weight:bold; background:#1a1a1a; padding:6px; border-radius:6px; border:1px solid #333; margin-top:8px; width:100%; min-width:170px;"> 
@@ -219,10 +349,36 @@
 
           document.getElementById('ui-behind').innerHTML = buildSmartBox(data.behind, data.behind_html, data.time_b_ll, data.gap_b, data.time_b_bl, data.gap_b_bl, data.cb, data.cbb); 
           document.getElementById('ui-ahead').innerHTML = buildSmartBox(data.ahead, data.ahead_html, data.time_a_ll, data.gap_a, data.time_a_bl, data.gap_a_bl, data.ca, data.cab); 
-           
-          document.getElementById('ui-num').innerHTML = data.num || "--"; 
-          document.getElementById('ui-time').innerHTML = data.time || "--:--"; 
-          document.getElementById('ui-laps').innerHTML = data.laps || "-"; 
+
+          /* --- AGGIORNAMENTO TARGET HUNT MODE --- */
+          document.getElementById('th-me-pos').innerHTML = posText;
+          document.getElementById('th-tgt-num').innerHTML = data.time_b_bl || "#--";
+          document.getElementById('th-tgt-pos').innerHTML = data.time_b_ll || "P-";
+          document.getElementById('th-tgt-l').innerHTML = "L: " + (data.time_a_ll || "--:--.---");
+          document.getElementById('th-tgt-b').innerHTML = "B: " + (data.time_a_bl || "--:--.---");
+          document.getElementById('th-bgap').innerHTML = data.behind || "B-GAP: --";
+          document.getElementById('th-banner-val').innerHTML = data.behind_html || "-.---";
+
+          const banner = document.getElementById('th-banner');
+          const bannerTxt = document.getElementById('th-banner-text');
+          const bannerPace = document.getElementById('th-banner-pace');
+          const bannerVal = document.getElementById('th-banner-val');
+
+          // Usa gli stessi identici colori usati sull'ESP32 (Logica MotoGP)
+          if (data.cab === 1) { // ROSSO (Catching / Delta Meno)
+              banner.style.backgroundColor = "#FF0000";
+              bannerTxt.innerText = "CATCHING";
+              bannerTxt.style.color = "#FFFFFF"; bannerPace.style.color = "#FFFFFF"; bannerVal.style.color = "#FFFFFF";
+          } else if (data.cab === 2) { // ARANCIONE (Losing / Delta Più)
+              banner.style.backgroundColor = "#FF9900";
+              bannerTxt.innerText = "LOSING";
+              bannerTxt.style.color = "#000000"; bannerPace.style.color = "#000000"; bannerVal.style.color = "#000000";
+          } else { // NEUTRO
+              banner.style.backgroundColor = "#222222";
+              bannerTxt.innerText = "-";
+              bannerTxt.style.color = "#AAAAAA"; bannerPace.style.color = "#AAAAAA"; bannerVal.style.color = "#FFFFFF";
+          }
+
         } 
       } catch(e) { 
         console.log("Errore pacchetto:", e); 
@@ -243,7 +399,7 @@
         wakeLock = await navigator.wakeLock.request('screen'); 
       } catch (err) {} 
     }; 
-     
+      
     document.body.addEventListener('click', requestFullScreenAndWakeLock); 
     document.body.addEventListener('touchstart', requestFullScreenAndWakeLock); 
 
