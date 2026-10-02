@@ -231,7 +231,6 @@
       }
     }
 
-    // Mantiene l'ID costante se il telefono ricarica la pagina per errore
     let simId = localStorage.getItem('pitboardSimId');
     if (!simId) {
       simId = "PIT-S" + Math.floor(Math.random() * 900 + 100);
@@ -241,6 +240,7 @@
 
     const topicCommand = "pitboard/" + simId + "/command"; 
     const topicLive = "pitboard/" + simId + "/live"; 
+    const topicLiveApp = "pitboard/" + simId + "/live_app"; // Nuovo topic pulito per HTML
 
     const brokerUrl = "wss://broker.hivemq.com:8884/mqtt"; 
     const clientId = "Sim_Web_" + parseInt(Math.random() * 100000); 
@@ -263,6 +263,7 @@
       statusEl.style.color = "#22c55e"; 
       client.subscribe(topicCommand, { qos: 1 }); 
       client.subscribe(topicLive, { qos: 0 }); 
+      client.subscribe(topicLiveApp, { qos: 0 }); // Ascolta entrambi i topic
     }); 
 
     client.on('error', function (err) { 
@@ -289,8 +290,21 @@
           if (popupTimer) clearTimeout(popupTimer); 
           popupTimer = setTimeout(() => { popup.style.display = "none"; }, 4000); 
         } 
+        
+        else if (topic === topicLiveApp) {
+          // ============================================
+          // DATI PULITI (HTML) SOLO PER LA SCHERMATA 1 
+          // ============================================
+          if (data.ahead_html) document.getElementById('ui-ahead').innerHTML = data.ahead_html;
+          if (data.behind_html) document.getElementById('ui-behind').innerHTML = data.behind_html;
+          document.getElementById('ui-time').innerHTML = data.time || "--:--"; 
+          document.getElementById('ui-laps').innerHTML = data.laps || "-";
+        }
+        
         else if (topic === topicLive) { 
-          // Se la dashboard ordina di scollegarsi (UNPAIR / STOP)
+          // ============================================
+          // DATI RAW PER AGGIORNARE I NUMERI E LA SCHERMATA 3 
+          // ============================================
           if (data.cbb === 2) {
               document.getElementById('ui-pos').innerHTML = "P-"; 
               document.getElementById('ui-gap').innerHTML = "--"; 
@@ -300,7 +314,6 @@
               document.getElementById('ui-time').innerHTML = "--:--"; 
               document.getElementById('ui-laps').innerHTML = "-";
 
-              // Reset anche di Target Hunt
               document.getElementById('th-me-pos').innerHTML = "P-";
               document.getElementById('th-tgt-num').innerHTML = "#--";
               document.getElementById('th-tgt-pos').innerHTML = "P-";
@@ -315,48 +328,27 @@
 
           if (document.getElementById('popup').style.display === "flex") return; 
             
-          /* --- AGGIORNAMENTO DATI COMUNI --- */
           let posText = "P-"; 
           if (data.p && data.p !== "-" && data.p !== "0") { posText = "P" + data.p; } 
           document.getElementById('ui-num').innerHTML = data.num || "--"; 
-          document.getElementById('ui-time').innerHTML = data.time || "--:--"; 
-          document.getElementById('ui-laps').innerHTML = data.laps || "-"; 
 
-          /* --- AGGIORNAMENTO RACE MODE (Griglia 2x2) --- */
+          /* AGGIORNAMENTO RACE MODE (Campi non HTML) */
           document.getElementById('ui-pos').innerHTML = posText; 
           
           let gapColor = "#fff";
-          if(data.gap && data.gap.startsWith("+")) gapColor = "#ff9900"; // Arancione Moto GP
-          else if(data.gap && data.gap.startsWith("-")) gapColor = "#ef4444"; // Rosso Moto GP
+          if(data.gap && data.gap.startsWith("+")) gapColor = "#ff9900"; 
+          else if(data.gap && data.gap.startsWith("-")) gapColor = "#ef4444"; 
           document.getElementById('ui-gap').innerHTML = `<span style="color:${gapColor}">${data.gap || "--"}</span>`; 
-            
-          function buildSmartBox(name, htmlString, tL, gL, tB, gB, cL, cB) { 
-            if (htmlString && htmlString !== "--" && htmlString !== "-" && htmlString.trim() !== "") { return htmlString; } 
-            if (!name || name === "--" || name === "-" || name === "CLEAR") return `<span style="color:#888; font-size:2rem;">${name || "--"}</span>`; 
-            if (name === "LEADER") return `<span style="color:#ffcc00; font-size:2rem;">LEADER</span><br><span style="font-size: 1.8rem;">🥇</span>`; 
-              
-            let colorL = (cL === 1) ? '#ef4444' : (cL === 2 ? '#ff9900' : '#666'); // Colori Moto GP (Catching=Rosso, Losing=Arancio)
-            let colorB = (cB === 1) ? '#ef4444' : (cB === 2 ? '#ff9900' : '#666'); 
-              
-            return ` 
-              <span class="rival-num">${name}</span> 
-              <div style="display:flex; flex-direction:column; gap:4px; font-size:1.1rem; font-weight:bold; background:#1a1a1a; padding:6px; border-radius:6px; border:1px solid #333; margin-top:8px; width:100%; min-width:170px;"> 
-                  <span style="color:#ccc; display:flex; justify-content:space-between; align-items:center;"><span>⏱ L: ${tL || '--:--'}</span> <span style="color: ${colorL};">Δ ${gL || '--'}</span></span> 
-                  <span style="color:#06b6d4; display:flex; justify-content:space-between; align-items:center;"><span>🔥 B: ${tB || '--:--'}</span> <span style="color: ${colorB};">Δ ${gB || '--'}</span></span> 
-              </div> 
-            `; 
-          } 
 
-          document.getElementById('ui-behind').innerHTML = buildSmartBox(data.behind, data.behind_html, data.time_b_ll, data.gap_b, data.time_b_bl, data.gap_b_bl, data.cb, data.cbb); 
-          document.getElementById('ui-ahead').innerHTML = buildSmartBox(data.ahead, data.ahead_html, data.time_a_ll, data.gap_a, data.time_a_bl, data.gap_a_bl, data.ca, data.cab); 
-
-          /* --- AGGIORNAMENTO TARGET HUNT MODE --- */
+          /* AGGIORNAMENTO TARGET HUNT MODE */
           document.getElementById('th-me-pos').innerHTML = posText;
           document.getElementById('th-tgt-num').innerHTML = data.time_b_bl || "#--";
           document.getElementById('th-tgt-pos').innerHTML = data.time_b_ll || "P-";
           document.getElementById('th-tgt-l').innerHTML = "L: " + (data.time_a_ll || "--:--.---");
           document.getElementById('th-tgt-b').innerHTML = "B: " + (data.time_a_bl || "--:--.---");
-          document.getElementById('th-bgap').innerHTML = data.behind || "B-GAP: --";
+          
+          // Legge il B-GAP direttamente dalla variabile usata nel msgLite
+          document.getElementById('th-bgap').innerHTML = data.ahead_html || "B-GAP: --";
           document.getElementById('th-banner-val').innerHTML = data.behind_html || "-.---";
 
           const banner = document.getElementById('th-banner');
@@ -364,7 +356,6 @@
           const bannerPace = document.getElementById('th-banner-pace');
           const bannerVal = document.getElementById('th-banner-val');
 
-          // Usa gli stessi identici colori usati sull'ESP32 (Logica MotoGP)
           if (data.cab === 1) { // ROSSO (Catching / Delta Meno)
               banner.style.backgroundColor = "#FF0000";
               bannerTxt.innerText = "CATCHING";
@@ -378,35 +369,33 @@
               bannerTxt.innerText = "-";
               bannerTxt.style.color = "#AAAAAA"; bannerPace.style.color = "#AAAAAA"; bannerVal.style.color = "#FFFFFF";
           }
-
         } 
       } catch(e) { 
         console.log("Errore pacchetto:", e); 
       } 
     }); 
 
-  let wakeLock = null; 
+    // === FULLSCREEN E ANTI-STANDBY (WAKELOCK) COMPATIBILITÀ TOTALE ===
+    let wakeLock = null; 
     const requestFullScreenAndWakeLock = async () => { 
-      // 1. Tenta il Fullscreen (Funziona su Android, iPad, PC)
       try { 
         let docEl = document.documentElement;
         if (!document.fullscreenElement && !document.webkitFullscreenElement) { 
           if (docEl.requestFullscreen) { 
             await docEl.requestFullscreen(); 
-          } else if (docEl.webkitRequestFullscreen) { /* Safari/Vecchi iOS */
+          } else if (docEl.webkitRequestFullscreen) { /* Safari / iOS */
             await docEl.webkitRequestFullscreen(); 
           } else if (docEl.msRequestFullscreen) { /* Windows */
             await docEl.msRequestFullscreen();
           }
         } 
-      } catch (err) { console.log("Fullscreen non supportato:", err); } 
+      } catch (err) {} 
 
-      // 2. Forza lo schermo sempre acceso (Anti-Standby)
       try { 
         if ('wakeLock' in navigator) {
           wakeLock = await navigator.wakeLock.request('screen'); 
         }
-      } catch (err) { console.log("Wakelock non supportato:", err); } 
+      } catch (err) {} 
     }; 
       
     document.body.addEventListener('click', requestFullScreenAndWakeLock); 
