@@ -11,9 +11,6 @@ let activeEngine = 'time2race';
 let currentDeviceId = ""; 
 let isMqttConnected = false;
 
-// Variabile di stato per distinguere Gara / Qualifica (se non è gara, assumiamo Time Attack/Qualifica)
-let isRaceSession = false;
-
 // === Riconoscimento Doppiaggi ===
 function isLappedGap(gapStr) {
   if (!gapStr) return false;
@@ -203,11 +200,9 @@ function stopSession() {
 
 function resetDashboard() {
   sessionTimeLeft = "--:--"; myDriverLaps = "-";
-  isRaceSession = false; // Reset stato sessione
   
   document.getElementById('sessionStatus').innerHTML = '⏱️ Waiting for connection...';
   
-  // RESET COMPLETO DEI MENU A TENDINA E LORO SALVATAGGI
   document.getElementById('driverSelect').innerHTML = '<option value="">Select Rider...</option>';
   const targetSelect = document.getElementById('targetSelect');
   if (targetSelect) targetSelect.innerHTML = '<option value="">Select Target...</option>';
@@ -218,7 +213,6 @@ function resetDashboard() {
   localStorage.removeItem('pit_driver_id');
   localStorage.removeItem('pit_target_id');
   
-  // RESET GRAFICO DELLA WEB APP
   document.getElementById('pos').innerText = 'P-'; 
   document.getElementById('driverAhead').innerHTML = '--';
   document.getElementById('driverBehind').innerHTML = '--'; 
@@ -270,15 +264,6 @@ function connectTime2Race() {
       if (raceInfo) {
         sessionTimeLeft = raceInfo.remaining || raceInfo.timeremaining || raceInfo.time_left || raceInfo.racetime || "--:--";
         if (raceInfo.endrace) sessionTimeLeft = "ENDED";
-        
-        // Verifica se è una gara (su T2R il nome della sessione di solito contiene "Race" o "Gara", altrimenti si controlla se l'ordinamento è a giri)
-        const sessionName = String(raceInfo.name || raceInfo.sessionname || "").toLowerCase();
-        if (sessionName.includes('gara') || sessionName.includes('race')) {
-          isRaceSession = true;
-        } else {
-          isRaceSession = false; // È qualifica o prove libere
-        }
-        
         updateBanner();
       }
       let incomingDrivers = payload.drivers || (payload.data ? payload.data.drivers : null);
@@ -329,16 +314,6 @@ async function connectMylaps(sessionId) {
             const payload = JSON.parse(msg);
             if(payload.type === 1 && payload.arguments && payload.arguments[0]) {
                const arg = payload.arguments[0];
-               
-               // Verifica nome sessione Mylaps per capire se è gara
-               if (arg.sessionName) {
-                   const sName = String(arg.sessionName).toLowerCase();
-                   if (sName.includes('gara') || sName.includes('race')) {
-                       isRaceSession = true;
-                   } else {
-                       isRaceSession = false;
-                   }
-               }
                
                if (arg.timeRemaining) sessionTimeLeft = arg.timeRemaining;
                else if (arg.timeToFinish) sessionTimeLeft = arg.timeToFinish;
@@ -424,7 +399,6 @@ function formatRivalInfo(driver, myDriver) {
 function populateTargetDropdown(drivers) {
   const select = document.getElementById('targetSelect');
   if (!select) return;
-  // Rigenera sempre le option se sono arrivate nuove o azzerate
   const currentVal = select.value;
   select.innerHTML = '<option value="">Select Target...</option>';
   drivers.forEach(d => {
@@ -447,7 +421,6 @@ function populateDriverDropdown(drivers) {
     if (String(opt.value) === String(selectedDriverId) || String(opt.value) === String(currentVal)) opt.selected = true;
     select.appendChild(opt);
   });
-  // Rimosso updateDashboard da qui per evitare loop continui ad ogni tick
 }
 
 function updateDashboard(driversList) {
@@ -465,8 +438,6 @@ function updateDashboard(driversList) {
 
   if (!selectedDriverId) return;
   const myDriver = driversList.find(d => String(getDriverId(d)) === String(selectedDriverId));
-  
-  // === RECUPERA DATI TARGET ===
   const myTarget = selectedTargetId ? driversList.find(d => String(getDriverId(d)) === String(selectedTargetId)) : null;
 
   if (myDriver) {
@@ -492,8 +463,8 @@ function updateDashboard(driversList) {
     document.getElementById('myDriverNum').innerText = myNumText;
 
     let myLastMs = parseTimeToMs(formatLapTime(myDriver.lasttime || myDriver.lsTm));
-    let myLastStr = formatLapTime(myDriver.lasttime || myDriver.lsTm); // PER PAGINA 3
-    let myBestStr = formatLapTime(myDriver.besttime || myDriver.btTm); // PER PAGINA 3
+    let myLastStr = formatLapTime(myDriver.lasttime || myDriver.lsTm); 
+    let myBestStr = formatLapTime(myDriver.besttime || myDriver.btTm); 
 
     let stringAhead = '--'; let mqttAhead = '--'; let mqttAheadGap = '--'; let mqttAheadGapBL = '--'; let c_a = 0;
     let stringBehind = '--'; let mqttBehind = '--'; let mqttBehindGap = '--'; let mqttBehindGapBL = '--'; let c_b = 0;
@@ -503,7 +474,7 @@ function updateDashboard(driversList) {
 
     // === ELABORAZIONE TARGET HUNT (PAGINA 3 ESP) ===
     let t_pos = "--", t_num = "--", t_last = "--", t_best = "--", t_pace_delta = "--", t_total_gap = "--";
-    let flag_catch = 0; // 0=None, 1=Catching(Verde/Rosso), 2=Losing(Rosso/Arancio)
+    let flag_catch = 0; 
 
     if(myTarget) {
       t_pos = "P" + (myTarget.position || myTarget.pos || "-");
@@ -511,37 +482,22 @@ function updateDashboard(driversList) {
       t_last = formatLapTime(myTarget.lasttime || myTarget.lsTm);
       t_best = formatLapTime(myTarget.besttime || myTarget.btTm);
 
-      // --- LOGICA PACE DELTA (Banner in basso: sempre Last vs Last) ---
+      // --- LOGICA PACE DELTA ---
       let targetLastMs = parseTimeToMs(t_last);
       if (myLastMs > 0 && targetLastMs > 0) {
         let diffMs = myLastMs - targetLastMs;
         t_pace_delta = (diffMs > 0 ? "+" : "") + (diffMs / 1000).toFixed(3);
-        flag_catch = (diffMs < 0) ? 1 : (diffMs > 0 ? 2 : 0); // 1 = Verde (Catching), 2 = Rosso (Losing)
+        flag_catch = (diffMs < 0) ? 1 : (diffMs > 0 ? 2 : 0); 
       }
 
-      // --- LOGICA INTELLIGENTE BOX CENTRALE (Gara = Real Gap | Qualifica = Best Gap) ---
-      if (isRaceSession) {
-          // CALCOLO REAL GAP (Distanza in pista tramite distacco dal primo)
-          let theirDiffStr = String(myTarget.gap || myTarget.difference || myTarget.df || '0');
-          let theirDiffFloat = parseFloat(theirDiffStr.replace('+', '').replace(',', '.')) || 0;
-          
-          if (!isLappedGap(myDiffStr) && !isLappedGap(theirDiffStr)) {
-            let prefix = (parseInt(myTarget.position || myTarget.pos, 10) < myPos) ? "-" : "+";
-            let absGap = Math.abs(myDiffFloat - theirDiffFloat).toFixed(3);
-            t_total_gap = "GAP: " + prefix + absGap; // Scrive GAP
-          } else {
-            t_total_gap = "GAP: LAPPED";
-          }
+      // --- LOGICA BEST GAP (SEMPRE FISSA PER CHIAREZZA) ---
+      let targetBestMs = parseTimeToMs(t_best);
+      if (myBestMs > 0 && targetBestMs > 0) {
+        let bestDiffMs = myBestMs - targetBestMs;
+        let prefix = (bestDiffMs > 0) ? "+" : ""; 
+        t_total_gap = "B-GAP: " + prefix + (bestDiffMs / 1000).toFixed(3); 
       } else {
-          // CALCOLO BEST GAP (Differenza Record sul giro)
-          let targetBestMs = parseTimeToMs(t_best);
-          if (myBestMs > 0 && targetBestMs > 0) {
-            let bestDiffMs = myBestMs - targetBestMs;
-            let prefix = (bestDiffMs > 0) ? "+" : ""; 
-            t_total_gap = "B-GAP: " + prefix + (bestDiffMs / 1000).toFixed(3); // Scrive B-GAP
-          } else {
-            t_total_gap = "B-GAP: --";
-          }
+        t_total_gap = "B-GAP: --";
       }
     }
 
@@ -622,10 +578,13 @@ function updateDashboard(driversList) {
     
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
       
+      // COSTRUZIONE DEL PAYLOAD CORRETTA PER RISOLVERE I CONFLITTI
       const payloadLite = JSON.stringify({
         p: String(myPos), gap: gapText, 
-        ahead: mqttAhead, ahead_html: myLastStr, gap_a: mqttAheadGap, gap_a_bl: mqttAheadGapBL, time_a_ll: t_last, time_a_bl: t_best,
-        behind: t_total_gap, behind_html: t_pace_delta, gap_b: mqttBehindGap, gap_b_bl: mqttBehindGapBL, time_b_ll: t_pos, time_b_bl: t_num,
+        ahead: mqttAhead, ahead_html: t_total_gap,  // IL B-GAP VIENE INVIATO QUI PER NON TOCCARE LA PAGINA 1
+        gap_a: mqttAheadGap, gap_a_bl: mqttAheadGapBL, time_a_ll: t_last, time_a_bl: t_best,
+        behind: mqttBehind, behind_html: t_pace_delta, // IL NUMERO BEHIND RESTA "mqttBehind" E SISTEMA LA SCHERMATA 1!
+        gap_b: mqttBehindGap, gap_b_bl: mqttBehindGapBL, time_b_ll: t_pos, time_b_bl: t_num,
         num: myNumText, time: myBestStr, laps: String(myDriverLaps),
         ca: c_a, cb: c_b, cab: flag_catch, cbb: 1
       });
