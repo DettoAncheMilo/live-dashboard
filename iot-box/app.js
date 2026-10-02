@@ -1,5 +1,5 @@
 let selectedDriverId = localStorage.getItem('pit_driver_id') || null;
-let selectedTargetId = localStorage.getItem('pit_target_id') || null; // NUOVO: ID del Target
+let selectedTargetId = localStorage.getItem('pit_target_id') || null; 
 let currentRaceId = localStorage.getItem('pit_race_id') || null;
 let ws = null; 
 let lastKnownDrivers = []; 
@@ -10,6 +10,9 @@ let activeEngine = 'time2race';
 
 let currentDeviceId = ""; 
 let isMqttConnected = false;
+
+// Variabile di stato per distinguere Gara / Qualifica (se non è gara, assumiamo Time Attack/Qualifica)
+let isRaceSession = false;
 
 // Anti-standby per il telefono
 if ('wakeLock' in navigator) {
@@ -205,8 +208,20 @@ function stopSession() {
 
 function resetDashboard() {
   sessionTimeLeft = "--:--"; myDriverLaps = "-";
+  isRaceSession = false; // Reset stato sessione
+  
   document.getElementById('sessionStatus').innerHTML = '⏱️ Waiting for connection...';
+  
+  // RESET COMPLETO DEI MENU A TENDINA E LORO SALVATAGGI
   document.getElementById('driverSelect').innerHTML = '<option value="">Select Rider...</option>';
+  const targetSelect = document.getElementById('targetSelect');
+  if (targetSelect) targetSelect.innerHTML = '<option value="">Select Target...</option>';
+  
+  lastKnownDrivers = []; 
+  selectedDriverId = null; 
+  selectedTargetId = null;
+  localStorage.removeItem('pit_driver_id');
+  localStorage.removeItem('pit_target_id');
   
   // RESET GRAFICO DELLA WEB APP
   document.getElementById('pos').innerText = 'P-'; 
@@ -215,10 +230,8 @@ function resetDashboard() {
   document.getElementById('gap').innerText = '--'; 
   document.getElementById('myDriverNum').innerText = '--';
 
-  lastKnownDrivers = []; selectedDriverId = null; selectedTargetId = null;
-  localStorage.removeItem('pit_driver_id');
-  localStorage.removeItem('pit_target_id');
-  updateDashboard([]); setButtonState('default');
+  updateDashboard([]); 
+  setButtonState('default');
 }
 
 function changeDriver() {
@@ -232,7 +245,7 @@ function changeDriver() {
 }
 
 function changeTarget() {
-  const selectElement = document.getElementById('targetSelect'); // NUOVO
+  const selectElement = document.getElementById('targetSelect');
   if(!selectElement) return;
   const newId = selectElement.value;
   selectedTargetId = newId;
@@ -244,7 +257,7 @@ function changeTarget() {
 
 document.addEventListener('change', function(event) {
   if (event.target && event.target.id === 'driverSelect') changeDriver();
-  if (event.target && event.target.id === 'targetSelect') changeTarget(); // NUOVO
+  if (event.target && event.target.id === 'targetSelect') changeTarget(); 
 });
 
 function connectTime2Race() {
@@ -262,6 +275,15 @@ function connectTime2Race() {
       if (raceInfo) {
         sessionTimeLeft = raceInfo.remaining || raceInfo.timeremaining || raceInfo.time_left || raceInfo.racetime || "--:--";
         if (raceInfo.endrace) sessionTimeLeft = "ENDED";
+        
+        // Verifica se è una gara (su T2R il nome della sessione di solito contiene "Race" o "Gara", altrimenti si controlla se l'ordinamento è a giri)
+        const sessionName = String(raceInfo.name || raceInfo.sessionname || "").toLowerCase();
+        if (sessionName.includes('gara') || sessionName.includes('race')) {
+          isRaceSession = true;
+        } else {
+          isRaceSession = false; // È qualifica o prove libere
+        }
+        
         updateBanner();
       }
       let incomingDrivers = payload.drivers || (payload.data ? payload.data.drivers : null);
@@ -273,7 +295,7 @@ function connectTime2Race() {
         });
         lastKnownDrivers.sort((a, b) => parseInt(a.position || a.pos || 9999) - parseInt(b.position || b.pos || 9999));
         populateDriverDropdown(lastKnownDrivers);
-        populateTargetDropdown(lastKnownDrivers); // NUOVO
+        populateTargetDropdown(lastKnownDrivers); 
         updateDashboard(lastKnownDrivers);
       }
     } catch (err) {}
@@ -312,6 +334,17 @@ async function connectMylaps(sessionId) {
             const payload = JSON.parse(msg);
             if(payload.type === 1 && payload.arguments && payload.arguments[0]) {
                const arg = payload.arguments[0];
+               
+               // Verifica nome sessione Mylaps per capire se è gara
+               if (arg.sessionName) {
+                   const sName = String(arg.sessionName).toLowerCase();
+                   if (sName.includes('gara') || sName.includes('race')) {
+                       isRaceSession = true;
+                   } else {
+                       isRaceSession = false;
+                   }
+               }
+               
                if (arg.timeRemaining) sessionTimeLeft = arg.timeRemaining;
                else if (arg.timeToFinish) sessionTimeLeft = arg.timeToFinish;
                else if (arg.ttg) sessionTimeLeft = arg.ttg; 
@@ -331,7 +364,7 @@ async function connectMylaps(sessionId) {
                  });
                  lastKnownDrivers.sort((a, b) => parseInt(a.position || 9999) - parseInt(b.position || 9999));
                  populateDriverDropdown(lastKnownDrivers);
-                 populateTargetDropdown(lastKnownDrivers); // NUOVO
+                 populateTargetDropdown(lastKnownDrivers); 
                  updateDashboard(lastKnownDrivers);
                }
             }
@@ -393,35 +426,33 @@ function formatRivalInfo(driver, myDriver) {
   `;
 }
 
-// === NUOVO: Popola il menu a tendina per il Target ===
 function populateTargetDropdown(drivers) {
   const select = document.getElementById('targetSelect');
   if (!select) return;
-  if (select.options.length <= 1 && drivers.length > 0) {
-    select.innerHTML = '<option value="">Select Target...</option>';
-    drivers.forEach(d => {
-      const opt = document.createElement('option'); opt.value = getDriverId(d); 
-      const num = d.raceno || d.no || ''; const name = d.fullname || d.nickname || d.nam || `Rider ${getDriverId(d)}`;
-      opt.textContent = num ? `#${num} ${name}` : name;
-      if (String(opt.value) === String(selectedTargetId)) opt.selected = true;
-      select.appendChild(opt);
-    });
-  }
+  // Rigenera sempre le option se sono arrivate nuove o azzerate
+  const currentVal = select.value;
+  select.innerHTML = '<option value="">Select Target...</option>';
+  drivers.forEach(d => {
+    const opt = document.createElement('option'); opt.value = getDriverId(d); 
+    const num = d.raceno || d.no || ''; const name = d.fullname || d.nickname || d.nam || `Rider ${getDriverId(d)}`;
+    opt.textContent = num ? `#${num} ${name}` : name;
+    if (String(opt.value) === String(selectedTargetId) || String(opt.value) === String(currentVal)) opt.selected = true;
+    select.appendChild(opt);
+  });
 }
 
 function populateDriverDropdown(drivers) {
   const select = document.getElementById('driverSelect');
-  if (select.options.length <= 1 && drivers.length > 0) {
-    select.innerHTML = '<option value="">Select Rider...</option>';
-    drivers.forEach(d => {
-      const opt = document.createElement('option'); opt.value = getDriverId(d); 
-      const num = d.raceno || d.no || ''; const name = d.fullname || d.nickname || d.nam || `Rider ${getDriverId(d)}`;
-      opt.textContent = num ? `#${num} ${name}` : name;
-      if (String(opt.value) === String(selectedDriverId)) opt.selected = true;
-      select.appendChild(opt);
-    });
-    updateDashboard(drivers);
-  }
+  const currentVal = select.value;
+  select.innerHTML = '<option value="">Select Rider...</option>';
+  drivers.forEach(d => {
+    const opt = document.createElement('option'); opt.value = getDriverId(d); 
+    const num = d.raceno || d.no || ''; const name = d.fullname || d.nickname || d.nam || `Rider ${getDriverId(d)}`;
+    opt.textContent = num ? `#${num} ${name}` : name;
+    if (String(opt.value) === String(selectedDriverId) || String(opt.value) === String(currentVal)) opt.selected = true;
+    select.appendChild(opt);
+  });
+  // Rimosso updateDashboard da qui per evitare loop continui ad ogni tick
 }
 
 function updateDashboard(driversList) {
@@ -485,22 +516,37 @@ function updateDashboard(driversList) {
       t_last = formatLapTime(myTarget.lasttime || myTarget.lsTm);
       t_best = formatLapTime(myTarget.besttime || myTarget.btTm);
 
+      // --- LOGICA PACE DELTA (Banner in basso: sempre Last vs Last) ---
       let targetLastMs = parseTimeToMs(t_last);
       if (myLastMs > 0 && targetLastMs > 0) {
         let diffMs = myLastMs - targetLastMs;
         t_pace_delta = (diffMs > 0 ? "+" : "") + (diffMs / 1000).toFixed(3);
-        flag_catch = (diffMs <= 0) ? 1 : 2; // 1 = Verde (Catching), 2 = Rosso (Losing)
+        flag_catch = (diffMs < 0) ? 1 : (diffMs > 0 ? 2 : 0); // 1 = Verde (Catching), 2 = Rosso (Losing)
       }
 
-      // Calcolo Delta tra i Best Lap (Mio Best vs Target Best)
-      let targetBestMs = parseTimeToMs(t_best);
-      if (myBestMs > 0 && targetBestMs > 0) {
-        let bestDiffMs = myBestMs - targetBestMs;
-        // Se il tuo best è più alto, sei più lento (+), se è più basso sei più veloce (-)
-        let prefix = (bestDiffMs > 0) ? "+" : ""; 
-        t_total_gap = prefix + (bestDiffMs / 1000).toFixed(3);
+      // --- LOGICA INTELLIGENTE BOX CENTRALE (Gara = Real Gap | Qualifica = Best Gap) ---
+      if (isRaceSession) {
+          // CALCOLO REAL GAP (Distanza in pista tramite distacco dal primo)
+          let theirDiffStr = String(myTarget.gap || myTarget.difference || myTarget.df || '0');
+          let theirDiffFloat = parseFloat(theirDiffStr.replace('+', '').replace(',', '.')) || 0;
+          
+          if (!isLappedGap(myDiffStr) && !isLappedGap(theirDiffStr)) {
+            let prefix = (parseInt(myTarget.position || myTarget.pos, 10) < myPos) ? "-" : "+";
+            let absGap = Math.abs(myDiffFloat - theirDiffFloat).toFixed(3);
+            t_total_gap = "GAP: " + prefix + absGap; // Scrive GAP
+          } else {
+            t_total_gap = "GAP: LAPPED";
+          }
       } else {
-        t_total_gap = "--";
+          // CALCOLO BEST GAP (Differenza Record sul giro)
+          let targetBestMs = parseTimeToMs(t_best);
+          if (myBestMs > 0 && targetBestMs > 0) {
+            let bestDiffMs = myBestMs - targetBestMs;
+            let prefix = (bestDiffMs > 0) ? "+" : ""; 
+            t_total_gap = "B-GAP: " + prefix + (bestDiffMs / 1000).toFixed(3); // Scrive B-GAP
+          } else {
+            t_total_gap = "B-GAP: --";
+          }
       }
     }
 
