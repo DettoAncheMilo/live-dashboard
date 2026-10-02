@@ -385,19 +385,28 @@
       } 
     }); 
 
-    let wakeLock = null; 
+  let wakeLock = null; 
     const requestFullScreenAndWakeLock = async () => { 
-      if (!document.fullscreenElement) { 
-        try { 
-          if (document.documentElement.requestFullscreen) { 
-            await document.documentElement.requestFullscreen(); 
-          } 
-        } catch (err) {} 
-      } 
-
+      // 1. Tenta il Fullscreen (Funziona su Android, iPad, PC)
       try { 
-        wakeLock = await navigator.wakeLock.request('screen'); 
-      } catch (err) {} 
+        let docEl = document.documentElement;
+        if (!document.fullscreenElement && !document.webkitFullscreenElement) { 
+          if (docEl.requestFullscreen) { 
+            await docEl.requestFullscreen(); 
+          } else if (docEl.webkitRequestFullscreen) { /* Safari/Vecchi iOS */
+            await docEl.webkitRequestFullscreen(); 
+          } else if (docEl.msRequestFullscreen) { /* Windows */
+            await docEl.msRequestFullscreen();
+          }
+        } 
+      } catch (err) { console.log("Fullscreen non supportato:", err); } 
+
+      // 2. Forza lo schermo sempre acceso (Anti-Standby)
+      try { 
+        if ('wakeLock' in navigator) {
+          wakeLock = await navigator.wakeLock.request('screen'); 
+        }
+      } catch (err) { console.log("Wakelock non supportato:", err); } 
     }; 
       
     document.body.addEventListener('click', requestFullScreenAndWakeLock); 
