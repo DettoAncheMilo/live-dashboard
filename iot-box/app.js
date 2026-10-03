@@ -25,7 +25,7 @@ function isLappedGap(gapStr) {
   return s.includes('lap') || s.includes('lp');
 }
 
-// === NUOVA FUNZIONE: Convertitore Gaps Universale ===
+// === Convertitore Gaps Universale ===
 function parseGapToMs(gapStr) {
   if (!gapStr) return 0;
   let str = String(gapStr).trim().toLowerCase();
@@ -208,6 +208,12 @@ function loadNewRace() {
     } else {
       setButtonState('error'); alert("Invalid FICR link.");
     }
+  } else if (inputUrl.includes('mgmtiming.it')) {
+    currentRaceId = inputUrl; // MGM usa l'URL intero
+    activeEngine = 'mgm';
+    localStorage.setItem('pit_race_id', currentRaceId);
+    localStorage.setItem('pit_active_engine', activeEngine);
+    resetDashboard(); connectMgm(currentRaceId);
   } else {
     setButtonState('error'); alert("Please insert a valid link!");
   }
@@ -275,7 +281,7 @@ function changeDriver() {
   if (typeof sendConfigToLilyGO === "function") sendConfigToLilyGO();
 }
 
-// === REINSERITO: Funzione Cambio Target ===
+// === Funzione Cambio Target ===
 function changeTarget() {
   const selectElement = document.getElementById('targetSelect');
   if(!selectElement) return;
@@ -289,9 +295,10 @@ function changeTarget() {
 
 document.addEventListener('change', function(event) {
   if (event.target && event.target.id === 'driverSelect') changeDriver();
-  if (event.target && event.target.id === 'targetSelect') changeTarget(); // Ascoltatore Ripristinato
+  if (event.target && event.target.id === 'targetSelect') changeTarget(); 
 });
 
+// === FICR TIMING ===
 async function connectFicr(eventName) {
   if (!currentRaceId || activeEngine !== 'ficr') return;
   if (window.ficrTimeout) clearTimeout(window.ficrTimeout);
@@ -335,7 +342,6 @@ async function pollFicr(eventName, sessionId) {
       const sessionInfo = parsedData[0];
       const driversArray = parsedData[1]; 
       
-      // Controllo Gara/Qualifica base per FICR
       if (sessionInfo.b) {
           const sName = String(sessionInfo.b).toLowerCase();
           isRaceSession = sName.includes('gara') || sName.includes('race');
@@ -371,7 +377,7 @@ async function pollFicr(eventName, sessionId) {
 
       lastKnownDrivers.sort((a, b) => parseInt(a.position || 9999) - parseInt(b.position || 9999));
       populateDriverDropdown(lastKnownDrivers);
-      populateTargetDropdown(lastKnownDrivers); // TENDINA TARGET RIPRISTINATA
+      populateTargetDropdown(lastKnownDrivers); 
       updateDashboard(lastKnownDrivers);
     }
   } catch (error) {}
@@ -379,6 +385,7 @@ async function pollFicr(eventName, sessionId) {
   window.ficrTimeout = setTimeout(() => pollFicr(eventName, sessionId), 3000);
 }
 
+// === TIME2RACE ===
 function connectTime2Race() {
   if (!currentRaceId || activeEngine !== 'time2race') return;
   if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); }
@@ -409,7 +416,7 @@ function connectTime2Race() {
         });
         lastKnownDrivers.sort((a, b) => parseInt(a.position || a.pos || 9999) - parseInt(b.position || b.pos || 9999));
         populateDriverDropdown(lastKnownDrivers);
-        populateTargetDropdown(lastKnownDrivers); // TENDINA TARGET RIPRISTINATA
+        populateTargetDropdown(lastKnownDrivers);
         updateDashboard(lastKnownDrivers);
       }
     } catch (err) {}
@@ -418,6 +425,7 @@ function connectTime2Race() {
   ws.onclose = function() { window.wsTimeout = setTimeout(connectTime2Race, 3000); };
 }
 
+// === MYLAPS ===
 async function connectMylaps(sessionId) {
   if (!currentRaceId || activeEngine !== 'mylaps') return;
   if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); }
@@ -473,7 +481,7 @@ async function connectMylaps(sessionId) {
                  });
                  lastKnownDrivers.sort((a, b) => parseInt(a.position || 9999) - parseInt(b.position || 9999));
                  populateDriverDropdown(lastKnownDrivers);
-                 populateTargetDropdown(lastKnownDrivers); // TENDINA TARGET RIPRISTINATA
+                 populateTargetDropdown(lastKnownDrivers); 
                  updateDashboard(lastKnownDrivers);
                }
             }
@@ -487,6 +495,117 @@ async function connectMylaps(sessionId) {
     setButtonState('error'); document.getElementById('sessionStatus').innerHTML = "⚠️ CONNECTION ERROR";
   }
 }
+
+// === MGM TIMING INTEGRATION ===
+async function connectMgm(originalUrl) {
+  if (!currentRaceId || activeEngine !== 'mgm') return;
+  if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); }
+  if (window.wsTimeout) clearTimeout(window.wsTimeout);
+
+  try {
+    const proxyUrl = 'https://mylaps-proxy.nico-mila91.workers.dev/?url='; 
+    const baseUrl = "https://live.mgmtiming.it/signalr";
+    const negotiateUrl = encodeURIComponent(`${baseUrl}/negotiate?clientProtocol=1.5&connectionData=%5B%7B%22name%22%3A%22livetickerminimobile%22%7D%5D`);
+    
+    const response = await fetch(proxyUrl + negotiateUrl, { method: 'GET' });
+    const settings = JSON.parse(await response.text());
+    const token = encodeURIComponent(settings.ConnectionToken);
+
+    const wsUrl = `wss://live.mgmtiming.it/signalr/connect?transport=webSockets&clientProtocol=1.5&connectionToken=${token}&connectionData=%5B%7B%22name%22%3A%22livetickerminimobile%22%7D%5D`;
+
+    ws = new WebSocket(wsUrl);
+
+    ws.onopen = function() {
+      setButtonState('connected'); 
+    };
+
+    ws.onmessage = function(event) {
+      if (event.data === '{}') return; 
+
+      try {
+        const payload = JSON.parse(event.data);
+        
+        if (payload.M && Array.isArray(payload.M)) {
+          payload.M.forEach(msg => {
+            if (msg.M === "updatelivePage" && msg.A && Array.isArray(msg.A)) {
+               const dataBlock = msg.A[0]; 
+               const sessionBlock = msg.A[1]; 
+
+               if (sessionBlock) {
+                 const runName = String(sessionBlock.TitoloRun || "").toLowerCase();
+                 isRaceSession = runName.includes('gara') || runName.includes('race');
+                 
+                 if (sessionBlock.Rimanente && sessionBlock.Rimanente !== "") {
+                   sessionTimeLeft = sessionBlock.Rimanente;
+                 } else if (sessionBlock.DurataGara && sessionBlock.DurataGara !== "") {
+                   sessionTimeLeft = sessionBlock.DurataGara;
+                 } else if (sessionBlock.TempoTrascorso && sessionBlock.TempoTrascorso !== "") {
+                   sessionTimeLeft = sessionBlock.TempoTrascorso;
+                 }
+                 updateBanner();
+               }
+
+               if (Array.isArray(dataBlock)) {
+                 const mappedDrivers = [];
+                 
+                 dataBlock.forEach((d, idx) => {
+                   const tdRegex = /<td[^>]*>(.*?)<\/td>/g;
+                   let tdMatches = [];
+                   let match;
+                   while ((match = tdRegex.exec(d.RigaTabella)) !== null) {
+                     tdMatches.push(match[1].trim());
+                   }
+
+                   if (tdMatches.length >= 7) {
+                     let pos = d.PosizioneArrivo || tdMatches[0];
+                     let raceno = tdMatches[1];
+                     let fullname = tdMatches[2];
+                     let laps = tdMatches[3];
+                     let lasttime = tdMatches[4];
+                     let besttime = tdMatches[5];
+                     let gap = tdMatches[6];
+
+                     gap = gap.replace(/&nbsp;/gi, '').trim();
+                     if (gap === '-' || gap === '') gap = '--';
+
+                     mappedDrivers.push({
+                       id: `mgm_${raceno}_${idx}`, 
+                       raceno: raceno, 
+                       fullname: fullname, 
+                       position: pos, 
+                       lasttime: lasttime, 
+                       besttime: besttime, 
+                       difference: gap, 
+                       laps: laps 
+                     });
+                   }
+                 });
+
+                 mappedDrivers.forEach(newD => {
+                   const idx = lastKnownDrivers.findIndex(oldD => String(oldD.raceno) === String(newD.raceno));
+                   if (idx !== -1) lastKnownDrivers[idx] = { ...lastKnownDrivers[idx], ...newD };
+                   else lastKnownDrivers.push(newD);
+                 });
+
+                 lastKnownDrivers.sort((a, b) => parseInt(a.position || 9999) - parseInt(b.position || 9999));
+                 populateDriverDropdown(lastKnownDrivers);
+                 populateTargetDropdown(lastKnownDrivers);
+                 updateDashboard(lastKnownDrivers);
+               }
+            }
+          });
+        }
+      } catch(e) {}
+    };
+    
+    ws.onerror = function() { setButtonState('error'); };
+    ws.onclose = function() { window.wsTimeout = setTimeout(() => connectMgm(originalUrl), 3000); };
+    
+  } catch (error) {
+    setButtonState('error'); document.getElementById('sessionStatus').innerHTML = "⚠️ CONNESSIONE MGM FALLITA";
+  }
+}
+// === FINE MGM TIMING ===
 
 function formatRivalInfo(driver, myDriver) {
   if (!driver) return '--';
@@ -539,7 +658,7 @@ function formatRivalInfo(driver, myDriver) {
   `;
 }
 
-// === REINSERITA: Funzione Popolamento Tendina Target ===
+// === Popolamento Tendina Target ===
 function populateTargetDropdown(drivers) {
   const select = document.getElementById('targetSelect');
   if (!select) return;
@@ -618,7 +737,7 @@ function updateDashboard(driversList) {
     let myDiffStr = String(myDriver.gap || myDriver.difference || myDriver.df || '0');
     let myDiffMs = parseGapToMs(myDiffStr);
 
-    // === ELABORAZIONE TARGET HUNT RIPRISTINATA ===
+    // === ELABORAZIONE TARGET HUNT ===
     let t_pos = "--", t_num = "--", t_last = "--", t_best = "--", t_pace_delta = "--", t_total_gap = "--";
     let flag_catch = 0; 
 
@@ -737,7 +856,7 @@ function updateDashboard(driversList) {
     
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
       
-      // COSTRUZIONE DEL PAYLOAD CORRETTA PER TARGET HUNT
+      // COSTRUZIONE DEL PAYLOAD PER TARGET HUNT
       const payloadLite = JSON.stringify({
         p: String(myPos), gap: gapText, 
         ahead: mqttAhead, ahead_html: t_total_gap, 
@@ -777,6 +896,7 @@ function updateDashboard(driversList) {
   }
 }
 
+// === AVVIO AUTOMATICO AL REFRESH DELLA PAGINA ===
 if (currentRaceId) {
   if (activeEngine === 'mylaps') {
     document.getElementById('raceLinkInput').value = `https://speedhive.mylaps.com/livetiming/EVENT/sessions/${currentRaceId}`; 
@@ -784,6 +904,9 @@ if (currentRaceId) {
   } else if (activeEngine === 'ficr') {
     document.getElementById('raceLinkInput').value = `https://www.livetiming.ficr.it/${currentRaceId}/`; 
     connectFicr(currentRaceId);
+  } else if (activeEngine === 'mgm') {
+    document.getElementById('raceLinkInput').value = currentRaceId; 
+    connectMgm(currentRaceId);
   } else {
     document.getElementById('raceLinkInput').value = `https://stg.mk.time2race.it/race/${currentRaceId}/`; 
     connectTime2Race();
