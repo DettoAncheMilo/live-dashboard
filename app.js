@@ -1,78 +1,114 @@
 let selectedDriverId = localStorage.getItem('pit_driver_id') || null;
 let currentRaceId = localStorage.getItem('pit_race_id') || null;
+let activeEngine = localStorage.getItem('pit_active_engine') || null; // Aggiunto salvataggio engine
 let ws = null; 
 let lastKnownDrivers = []; 
 
 let sessionTimeLeft = "--:--";
 let myDriverLaps = "-";
-let activeEngine = 'time2race';
 
+let currentDeviceId = ""; 
+let isMqttConnected = false;
+
+// Anti-standby per il telefono
 if ('wakeLock' in navigator) {
   navigator.wakeLock.request('screen').catch(console.error);
 }
 
-// ==========================================
-// INIEZIONE GRAFICA: CASELLA NUMERO DI GARA
-// ==========================================
-window.addEventListener('DOMContentLoaded', () => {
-  // CAMBIATO BERSAGLIO: Ora cerchiamo il tasto LOAD, non più il menù a tendina
-  const targetElement = document.getElementById('loadBtn'); 
-  if (targetElement && targetElement.parentNode) {
-    
-    // Togliamo il margin-left: auto e mettiamo un margin-left/right di 8px per staccarlo bene dal link e dal bottone
-    const inputStr = `<input type="text" id="myRaceNumber" placeholder="My#" title="Inserisci il tuo numero per l'Auto-Aggancio in pista" style="width: 50px; max-width: 50px; flex: 0 0 50px; margin-left: 8px; margin-right: 8px; padding: 2px; border-radius: 4px; border: 1px solid #555; background: #222; color: #ffcc00; font-weight: bold; text-align: center; font-size: 0.95rem; box-sizing: border-box;">`;
-    
-    targetElement.insertAdjacentHTML('beforebegin', inputStr);
-    
-    // Recupera il numero salvato in memoria
-    const savedNum = localStorage.getItem('pit_race_number');
-    if (savedNum) {
-      document.getElementById('myRaceNumber').value = savedNum;
+// === NUOVA FUNZIONE: Riconoscimento Doppiaggi ===
+function isLappedGap(gapStr) {
+  if (!gapStr) return false;
+  const s = String(gapStr).toLowerCase();
+  return s.includes('lap') || s.includes('lp');
+}
+
+function updatePairingUI() {
+  const statusEl = document.getElementById("pairStatus");
+  if (!statusEl) return;
+  if (currentDeviceId === "") {
+    statusEl.innerText = "UNPAIRED";
+    statusEl.style.color = "#888"; 
+  } else {
+    if (isMqttConnected) {
+      statusEl.innerText = "RADIO 🟢";
+      statusEl.style.color = "#22c55e"; 
+    } else {
+      statusEl.innerText = "RADIO 🔴";
+      statusEl.style.color = "#ef4444"; 
     }
   }
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  const savedNum = localStorage.getItem('pit_race_number');
+  if (savedNum) document.getElementById('myRaceNumber').value = savedNum;
+
+  const savedDeviceId = localStorage.getItem("pitboard_id");
+  if (savedDeviceId) {
+    const inputEl = document.getElementById("deviceIdInput");
+    if (inputEl) inputEl.value = savedDeviceId;
+    currentDeviceId = savedDeviceId;
+  }
+  updatePairingUI();
 });
+
+window.pairDevice = function() {
+  const inputEl = document.getElementById("deviceIdInput");
+  if (!inputEl) return;
+  const input = inputEl.value.trim().toUpperCase();
+  
+  if (input === "") {
+      currentDeviceId = "";
+      localStorage.removeItem("pitboard_id");
+      updatePairingUI();
+      return;
+  }
+
+  currentDeviceId = input;
+  localStorage.setItem("pitboard_id", currentDeviceId);
+  updatePairingUI();
+
+  if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
+    const pairLite = JSON.stringify({ 
+      p: "-", gap: "--", 
+      ahead: "--", ahead_html: "-", gap_a: "--", gap_a_bl: "--", time_a_ll: "-", time_a_bl: "-",
+      behind: "--", behind_html: "-", gap_b: "--", gap_b_bl: "--", time_b_ll: "-", time_b_bl: "-",
+      num: "--", time: "--:--", laps: "-", ca: 0, cb: 0, cab: 0, cbb: 1 
+    });
+    const msgPair = new Paho.MQTT.Message(pairLite);
+    msgPair.destinationName = "pitboard/" + currentDeviceId + "/live";
+    try { mqttClient.send(msgPair); } catch(e) {}
+  }
+
+  if (typeof sendConfigToLilyGO === "function") sendConfigToLilyGO();
+  if (lastKnownDrivers.length > 0) updateDashboard(lastKnownDrivers);
+};
 
 function setButtonState(state) {
   const btn = document.getElementById('loadBtn');
-  const stopBtn = document.getElementById('stopBtn'); // Cerca il tasto STOP
+  const stopBtn = document.getElementById('stopBtn');
   if (!btn) return;
-
   if (state === 'connected') {
-    btn.style.backgroundColor = '#22c55e'; 
-    btn.style.color = '#ffffff';
-    btn.innerText = 'ONLINE ✓';
-    if (stopBtn) stopBtn.style.display = 'block'; // Fai apparire lo STOP
+    btn.style.backgroundColor = '#22c55e'; btn.style.color = '#ffffff'; btn.innerText = 'ONLINE ✓';
+    if (stopBtn) stopBtn.style.display = 'block'; 
   } else if (state === 'connecting') {
-    btn.style.backgroundColor = '#3b82f6'; 
-    btn.style.color = '#ffffff';
-    btn.innerText = 'CONNECTING ⏳';
-    if (stopBtn) stopBtn.style.display = 'none'; // Nascondi lo STOP
+    btn.style.backgroundColor = '#3b82f6'; btn.style.color = '#ffffff'; btn.innerText = 'CONNECTING ⏳';
+    if (stopBtn) stopBtn.style.display = 'none'; 
   } else if (state === 'error') {
-    btn.style.backgroundColor = '#ef4444'; 
-    btn.style.color = '#ffffff';
-    btn.innerText = 'ERROR ⚠️';
-    if (stopBtn) stopBtn.style.display = 'none'; // Nascondi lo STOP
+    btn.style.backgroundColor = '#ef4444'; btn.style.color = '#ffffff'; btn.innerText = 'ERROR ⚠️';
+    if (stopBtn) stopBtn.style.display = 'none'; 
   } else {
-    btn.style.backgroundColor = '#ffcc00'; 
-    btn.style.color = '#000000';
-    btn.innerText = 'LOAD';
-    if (stopBtn) stopBtn.style.display = 'none'; // Nascondi lo STOP
+    btn.style.backgroundColor = '#ffcc00'; btn.style.color = '#000000'; btn.innerText = 'LOAD';
+    if (stopBtn) stopBtn.style.display = 'none'; 
   }
 }
 
 document.addEventListener('input', function(event) {
-  if (event.target && event.target.id === 'raceLinkInput') {
-    setButtonState('default');
-  }
-  // Salva il numero di gara in automatico mentre lo digiti
-  if (event.target && event.target.id === 'myRaceNumber') {
-    localStorage.setItem('pit_race_number', event.target.value.trim());
-  }
+  if (event.target && event.target.id === 'raceLinkInput') setButtonState('default');
+  if (event.target && event.target.id === 'myRaceNumber') localStorage.setItem('pit_race_number', event.target.value.trim());
 });
 
-function getDriverId(d) {
-  return d.id || d.user_id || d.raceno || d.fullname || d.no || d.nam;
-}
+function getDriverId(d) { return d.id || d.user_id || d.raceno || d.fullname || d.no || d.nam; }
 
 function formatLapTime(timeStr) {
   if (!timeStr || timeStr === "00:00:00.000000") return '--:--.--';
@@ -86,35 +122,14 @@ function formatLapTime(timeStr) {
 function parseTimeToMs(str) {
   if (!str || str.includes('-') || str === '--:--.--') return 0;
   let parts = str.split(':');
-  let secs = 0;
-  let ms = 0;
+  let secs = 0, ms = 0;
   let lastPart = parts.pop(); 
   let secParts = lastPart.split('.');
   secs += parseInt(secParts[0], 10) || 0;
   if(secParts[1]) ms = parseInt(secParts[1].padEnd(3, '0').substring(0,3), 10) || 0;
-  
   if(parts.length > 0) secs += parseInt(parts.pop(), 10) * 60;
   if(parts.length > 0) secs += parseInt(parts.pop(), 10) * 3600;
-  
   return (secs * 1000) + ms;
-}
-
-function timeStringToSeconds(str) {
-  if (!str) return 0;
-  const parts = str.split(':');
-  if (parts.length < 3) return 0;
-  return (+parts[0]) * 3600 + (+parts[1]) * 60 + (+parts[2]);
-}
-
-function secondsToTimeString(totalSeconds) {
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = totalSeconds % 60;
-  if (h > 0) {
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  } else {
-    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  }
 }
 
 function updateBanner() {
@@ -126,83 +141,79 @@ function updateBanner() {
 function loadNewRace() {
   const inputUrl = document.getElementById('raceLinkInput').value;
   if (!inputUrl) return;
-
+  
   setButtonState('connecting');
+  pairDevice();
   
   if (inputUrl.includes('time2race.it')) {
     const match = inputUrl.match(/race\/(\d+)/); 
     if (match && match[1]) {
-      currentRaceId = match[1];
-      activeEngine = 'time2race';
+      currentRaceId = match[1]; activeEngine = 'time2race';
       localStorage.setItem('pit_race_id', currentRaceId);
-      resetDashboard();
-      connectTime2Race(); 
+      localStorage.setItem('pit_active_engine', activeEngine);
+      resetDashboard(); connectTime2Race(); 
     }
   } else if (inputUrl.includes('speedhive.mylaps.com')) {
     const match = inputUrl.match(/sessions\/([A-Za-z0-9\-]+)/);
     if (match && match[1]) {
-      currentRaceId = match[1];
-      activeEngine = 'mylaps';
+      currentRaceId = match[1]; activeEngine = 'mylaps';
       localStorage.setItem('pit_race_id', currentRaceId);
-      resetDashboard();
-      connectMylaps(currentRaceId);
+      localStorage.setItem('pit_active_engine', activeEngine);
+      resetDashboard(); connectMylaps(currentRaceId);
     } else {
-      setButtonState('error');
-      alert("Invalid Mylaps link. Ensure it contains '/sessions/...'");
+      setButtonState('error'); alert("Invalid Mylaps link.");
+    }
+  } else if (inputUrl.includes('livetiming.ficr.it')) {
+    // Es: https://www.livetiming.ficr.it/cronoagrigento/
+    const match = inputUrl.match(/livetiming\.ficr\.it\/([^\/]+)/);
+    if (match && match[1]) {
+      currentRaceId = match[1]; // es: cronoagrigento
+      activeEngine = 'ficr';
+      localStorage.setItem('pit_race_id', currentRaceId);
+      localStorage.setItem('pit_active_engine', activeEngine);
+      resetDashboard(); connectFicr(currentRaceId);
+    } else {
+      setButtonState('error'); alert("Invalid FICR link.");
     }
   } else {
-    setButtonState('error');
-    alert("Please insert a valid link (Time2Race or Mylaps)!");
+    setButtonState('error'); alert("Please insert a valid link!");
   }
 }
 
-// Funzione per fermare la sessione e AZZERARE I NUMERI (Kill Switch)
 function stopSession() {
-  // 1. Uccide la connessione radio in modo silenzioso
-  if (ws) {
-    ws.onclose = null; 
-    ws.onerror = null; 
-    ws.close();
-    ws = null;
+  if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
+    const resetLite = JSON.stringify({ 
+      p: "-", gap: "--", 
+      ahead: "--", ahead_html: "-", gap_a: "--", gap_a_bl: "--", time_a_ll: "-", time_a_bl: "-",
+      behind: "--", behind_html: "-", gap_b: "--", gap_b_bl: "--", time_b_ll: "-", time_b_bl: "-",
+      num: "--", time: "--:--", laps: "-", ca: 0, cb: 0, cab: 0, cbb: 2 
+    });
+    const msgResetLite = new Paho.MQTT.Message(resetLite);
+    msgResetLite.destinationName = "pitboard/" + currentDeviceId + "/live";
+    try { mqttClient.send(msgResetLite); } catch(e) {}
   }
-  
-  // Ferma eventuali tentativi di riconnessione in background
-  if (window.wsTimeout) clearTimeout(window.wsTimeout);
-  
-  // 2. Svuota la memoria dei vecchi link e piloti
-  currentRaceId = null;
-  activeEngine = null;
-  localStorage.removeItem('pit_race_id');
-  
-  // 3. Svuota la barra di testo
-  document.getElementById('raceLinkInput').value = '';
 
-  // 4. Azzera la casellina del numero di gara in pista
-  const numInput = document.getElementById('myRaceNumber');
-  if (numInput) {
-    numInput.value = '';
-    localStorage.removeItem('pit_race_number');
-  }
+  if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); ws = null; }
+  if (window.wsTimeout) clearTimeout(window.wsTimeout);
+  if (window.ficrTimeout) clearTimeout(window.ficrTimeout); // Clear per FICR
   
-  // 5. Lancia il reset dell'interfaccia
+  currentRaceId = null; activeEngine = null;
+  localStorage.removeItem('pit_race_id');
+  localStorage.removeItem('pit_active_engine');
+  
+  document.getElementById('raceLinkInput').value = '';
+  const numInput = document.getElementById('myRaceNumber');
+  if (numInput) { numInput.value = ''; localStorage.removeItem('pit_race_number'); }
   resetDashboard();
 }
 
 function resetDashboard() {
-  sessionTimeLeft = "--:--";
-  myDriverLaps = "-";
+  sessionTimeLeft = "--:--"; myDriverLaps = "-";
   document.getElementById('sessionStatus').innerHTML = '⏱️ Waiting for connection...';
   document.getElementById('driverSelect').innerHTML = '<option value="">Select Rider...</option>';
-  lastKnownDrivers = [];
-  
-  selectedDriverId = null;
+  lastKnownDrivers = []; selectedDriverId = null;
   localStorage.removeItem('pit_driver_id');
-  
-  // Chiama il motore grafico per forzare l'azzeramento
-  updateDashboard([]);
-  
-  // Riporta il bottone giallo su LOAD e nasconde lo STOP
-  setButtonState('default');
+  updateDashboard([]); setButtonState('default');
 }
 
 function changeDriver() {
@@ -212,178 +223,196 @@ function changeDriver() {
   selectedDriverId = newId;
   localStorage.setItem('pit_driver_id', newId);
   if (lastKnownDrivers.length > 0) updateDashboard(lastKnownDrivers);
-  
   if (typeof sendConfigToLilyGO === "function") sendConfigToLilyGO();
 }
 
 document.addEventListener('change', function(event) {
-  if (event.target && event.target.id === 'driverSelect') {
-    changeDriver();
-  }
+  if (event.target && event.target.id === 'driverSelect') changeDriver();
 });
+
+// === FICR INTEGRATION ===
+async function connectFicr(eventName) {
+  if (!currentRaceId || activeEngine !== 'ficr') return;
+  if (window.ficrTimeout) clearTimeout(window.ficrTimeout);
+
+  try {
+    const proxyUrl = 'https://mylaps-proxy.nico-mila91.workers.dev/?url=';
+    const baseUrl = `https://www.livetiming.ficr.it/${eventName}/`;
+    
+    // 1. Scarichiamo l'HTML della gara usando il tuo proxy per evitare blocchi CORS
+    const response = await fetch(proxyUrl + encodeURIComponent(baseUrl));
+    const htmlText = await response.text();
+
+    // 2. Estraiamo la variabile 'c' (es: c=ca52cc4d) 
+    const cMatch = htmlText.match(/c=([a-fA-F0-9]+)/);
+    const sessionId = cMatch ? cMatch[1] : '';
+
+    if (!sessionId) {
+      console.warn("Codice Sessione FICR non trovato nell'HTML. Provo il fallback.");
+    }
+
+    setButtonState('connected');
+    pollFicr(eventName, sessionId);
+
+  } catch (error) {
+    console.error("Errore inizializzazione FICR:", error);
+    setButtonState('error');
+    document.getElementById('sessionStatus').innerHTML = "⚠️ ERRORE CONNESSIONE FICR";
+  }
+}
+
+async function pollFicr(eventName, sessionId) {
+  if (activeEngine !== 'ficr') return;
+
+  try {
+    const proxyUrl = 'https://mylaps-proxy.nico-mila91.workers.dev/?url=';
+    const timestamp = Date.now();
+    const dataUrl = `https://www.livetiming.ficr.it/${eventName}/dataSend.php?u=${eventName}&c=${sessionId}&_=${timestamp}`;
+
+    const response = await fetch(proxyUrl + encodeURIComponent(dataUrl));
+    const rawText = await response.text();
+    
+    let parsedData;
+    try {
+      parsedData = JSON.parse(rawText);
+    } catch(e) {
+      console.error("Errore parsing JSON da FICR (salto il ciclo):", rawText.substring(0, 50));
+      window.ficrTimeout = setTimeout(() => pollFicr(eventName, sessionId), 3000);
+      return;
+    }
+
+    // Controllo che i dati abbiano almeno 2 elementi (info sessione + array piloti)
+    if (Array.isArray(parsedData) && parsedData.length > 1) {
+      const sessionInfo = parsedData[0];
+      const driversArray = parsedData[1]; // <--- ECCO L'ARRAY DEI PILOTI VERO E PROPRIO
+
+      // "j" o "k" di solito indicano il tempo rimanente della sessione
+      sessionTimeLeft = sessionInfo.j || sessionInfo.k || "--:--";
+      updateBanner();
+
+      const mappedDrivers = [];
+      
+      // Ora ciclo correttamente dentro driversArray
+      if (Array.isArray(driversArray)) {
+        for (let i = 0; i < driversArray.length; i++) {
+          const d = driversArray[i];
+          if (d.m && d.m !== "00:00.000") { // Escludiamo chi non ha tempi
+            mappedDrivers.push({
+              id: d.a || `ficr_${i}`, 
+              raceno: d.b || d.a,
+              fullname: d.c || "Rider",
+              position: d.r, // Posizione
+              lasttime: d.h, // Ultimo giro
+              besttime: d.m, // Best lap
+              difference: (d.s && d.s !== "--") ? d.s : "",
+              laps: d.j // Giri completati
+            });
+          }
+        }
+      }
+
+      // Aggiornamento array globale della Web App
+      mappedDrivers.forEach(newD => {
+        const idx = lastKnownDrivers.findIndex(oldD => String(oldD.id) === String(newD.id));
+        if (idx !== -1) lastKnownDrivers[idx] = { ...lastKnownDrivers[idx], ...newD };
+        else lastKnownDrivers.push(newD);
+      });
+
+      lastKnownDrivers.sort((a, b) => parseInt(a.position || 9999) - parseInt(b.position || 9999));
+      populateDriverDropdown(lastKnownDrivers);
+      updateDashboard(lastKnownDrivers);
+    }
+  } catch (error) {
+    console.error("Errore fetch dati FICR:", error);
+  }
+
+  // Polling ciclico ogni 3 secondi
+  window.ficrTimeout = setTimeout(() => pollFicr(eventName, sessionId), 3000);
+}
+// === FINE FICR INTEGRATION ===
 
 function connectTime2Race() {
   if (!currentRaceId || activeEngine !== 'time2race') return;
-  
-  // NUOVA CHIUSURA SILENZIOSA
-  if (ws) {
-    ws.onclose = null; 
-    ws.onerror = null; 
-    ws.close();
-  }
-  
+  if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); }
   if (window.wsTimeout) clearTimeout(window.wsTimeout);
 
-  const wsUrl = `wss://api-stg.mk.time2race.it/live/${currentRaceId}/ranking/`;
-  ws = new WebSocket(wsUrl);
-
-  ws.onopen = function() { setButtonState('connected'); };
-
+  ws = new WebSocket(`wss://api-stg.mk.time2race.it/live/${currentRaceId}/ranking/`);
+  ws.onopen = function() { setButtonState('connected'); }; 
   ws.onmessage = function(event) {
     if (event.data === 'ping' || event.data === 'pong') return;
     try {
       const payload = JSON.parse(event.data);
       const raceInfo = payload.race || (payload.data ? payload.data.race : null);
-      
       if (raceInfo) {
         sessionTimeLeft = raceInfo.remaining || raceInfo.timeremaining || raceInfo.time_left || raceInfo.racetime || "--:--";
         if (raceInfo.endrace) sessionTimeLeft = "ENDED";
         updateBanner();
       }
-
       let incomingDrivers = payload.drivers || (payload.data ? payload.data.drivers : null);
       if (incomingDrivers && incomingDrivers.length > 0) {
-        
-        // LOGICA DI FUSIONE: Aggiorna i piloti senza cancellare gli altri
         incomingDrivers.forEach(newD => {
           const idx = lastKnownDrivers.findIndex(oldD => String(getDriverId(oldD)) === String(getDriverId(newD)));
-          if (idx !== -1) {
-            lastKnownDrivers[idx] = { ...lastKnownDrivers[idx], ...newD }; // Aggiorna se esiste
-          } else {
-            lastKnownDrivers.push(newD); // Aggiunge se è nuovo
-          }
+          if (idx !== -1) lastKnownDrivers[idx] = { ...lastKnownDrivers[idx], ...newD };
+          else lastKnownDrivers.push(newD);
         });
-
-        // Riordina matematicamente la classifica (P1, P2...) per non sballare chi sta davanti/dietro
-        lastKnownDrivers.sort((a, b) => {
-          let posA = parseInt(a.position || a.pos || 9999);
-          let posB = parseInt(b.position || b.pos || 9999);
-          return posA - posB;
-        });
-
+        lastKnownDrivers.sort((a, b) => parseInt(a.position || a.pos || 9999) - parseInt(b.position || b.pos || 9999));
         populateDriverDropdown(lastKnownDrivers);
         updateDashboard(lastKnownDrivers);
       }
     } catch (err) {}
   };
-  
   ws.onerror = function() { setButtonState('error'); };
   ws.onclose = function() { window.wsTimeout = setTimeout(connectTime2Race, 3000); };
 }
 
 async function connectMylaps(sessionId) {
   if (!currentRaceId || activeEngine !== 'mylaps') return;
-  
-  // NUOVA CHIUSURA SILENZIOSA
-  if (ws) {
-    ws.onclose = null; 
-    ws.onerror = null; 
-    ws.close();
-  }
-  
+  if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); }
   if (window.wsTimeout) clearTimeout(window.wsTimeout);
 
   try {
     const proxyUrl = 'https://mylaps-proxy.nico-mila91.workers.dev/?url=';
     const negotiateUrl = encodeURIComponent('https://notifications.speedhive.com/api/negotiate?negotiateVersion=1');
-    
     const response = await fetch(proxyUrl + negotiateUrl, { method: 'POST' });
-    const responseText = await response.text(); 
-    
-    const settings = JSON.parse(responseText);
+    const settings = JSON.parse(await response.text());
     const token = settings.accessToken;
     let endpointUrl = settings.url;
 
     if(!token || !endpointUrl) throw new Error("Token missing!");
-
-    endpointUrl = endpointUrl.replace("https://", "wss://");
-    const wsUrl = `${endpointUrl}&access_token=${token}`;
-    ws = new WebSocket(wsUrl);
-    
+    ws = new WebSocket(`${endpointUrl.replace("https://", "wss://")}&access_token=${token}`);
     const END_CHAR = String.fromCharCode(0x1E); 
 
     ws.onopen = function() {
-      setButtonState('connected');
+      setButtonState('connected'); 
       ws.send('{"protocol":"json","version":1}' + END_CHAR);
-      ws.send(JSON.stringify({
-        arguments: [`session-${sessionId}`],
-        invocationId: "0",
-        target: "JoinGroup",
-        type: 1
-      }) + END_CHAR);
+      ws.send(JSON.stringify({ arguments: [`session-${sessionId}`], invocationId: "0", target: "JoinGroup", type: 1 }) + END_CHAR);
     };
 
     ws.onmessage = function(event) {
-      const messages = event.data.split(END_CHAR);
-      messages.forEach(msg => {
+      event.data.split(END_CHAR).forEach(msg => {
         if(msg) {
           try {
             const payload = JSON.parse(msg);
             if(payload.type === 1 && payload.arguments && payload.arguments[0]) {
                const arg = payload.arguments[0];
-
-               // Priorità assoluta al tempo rimanente (Countdown)
                if (arg.timeRemaining) sessionTimeLeft = arg.timeRemaining;
                else if (arg.timeToFinish) sessionTimeLeft = arg.timeToFinish;
                else if (arg.ttg) sessionTimeLeft = arg.ttg; 
                else if (arg.rT) sessionTimeLeft = arg.rT; 
-               else if (arg.tss) sessionTimeLeft = arg.tss; // Spostato in fondo come ultima spiaggia
-               
+               else if (arg.tss) sessionTimeLeft = arg.tss;
                updateBanner();
 
-              if (arg.results) {
+               if (arg.results) {
                  const mappedDrivers = arg.results.map(d => {
-                   
-                   let lapsCount = '-';
-                   if (d.l !== undefined) lapsCount = d.l;
-                   else if (d.lc !== undefined) lapsCount = d.lc;
-                   else if (d.ls !== undefined) lapsCount = d.ls; 
-                   else if (d.lap !== undefined) lapsCount = d.lap;
-                   else if (d.laps !== undefined) lapsCount = d.laps;
-                   else if (d.Laps !== undefined) lapsCount = d.Laps;
-                   else if (d.Lap !== undefined) lapsCount = d.Lap;
-                   else if (d.lapCount !== undefined) lapsCount = d.lapCount;
-                   else if (d.c !== undefined) lapsCount = d.c;
-
-                   return {
-                     id: d.id,
-                     raceno: d.no,
-                     fullname: d.nam,
-                     position: d.pos,
-                     lasttime: d.lsTm,
-                     besttime: d.btTm,
-                     difference: d.df,
-                     laps: lapsCount
-                   };
+                   let lapsCount = d.l || d.lc || d.ls || d.lap || d.laps || d.Laps || d.Lap || d.lapCount || d.c || '-';
+                   return { id: d.id, raceno: d.no, fullname: d.nam, position: d.pos, lasttime: d.lsTm, besttime: d.btTm, difference: d.df, laps: lapsCount };
                  });
-                 
-                 // LOGICA DI FUSIONE ANCHE PER MYLAPS
                  mappedDrivers.forEach(newD => {
                    const idx = lastKnownDrivers.findIndex(oldD => String(oldD.id) === String(newD.id));
-                   if (idx !== -1) {
-                     lastKnownDrivers[idx] = { ...lastKnownDrivers[idx], ...newD };
-                   } else {
-                     lastKnownDrivers.push(newD);
-                   }
+                   if (idx !== -1) lastKnownDrivers[idx] = { ...lastKnownDrivers[idx], ...newD };
+                   else lastKnownDrivers.push(newD);
                  });
-
-                 // RIORDINA CLASSIFICA
-                 lastKnownDrivers.sort((a, b) => {
-                   let posA = parseInt(a.position || 9999);
-                   let posB = parseInt(b.position || 9999);
-                   return posA - posB;
-                 });
-                 
+                 lastKnownDrivers.sort((a, b) => parseInt(a.position || 9999) - parseInt(b.position || 9999));
                  populateDriverDropdown(lastKnownDrivers);
                  updateDashboard(lastKnownDrivers);
                }
@@ -392,159 +421,218 @@ async function connectMylaps(sessionId) {
         }
       });
     };
-    
     ws.onerror = function() { setButtonState('error'); };
     ws.onclose = function() { window.wsTimeout = setTimeout(() => connectMylaps(sessionId), 3000); };
-
   } catch (error) {
-    setButtonState('error');
-    document.getElementById('sessionStatus').innerHTML = "⚠️ CONNECTION ERROR";
+    setButtonState('error'); document.getElementById('sessionStatus').innerHTML = "⚠️ CONNECTION ERROR";
   }
 }
 
 function formatRivalInfo(driver, myDriver) {
   if (!driver) return '--';
   const num = driver.raceno || driver.no || '';
-  
-  const theirLastTimeRaw = driver.lasttime || driver.lsTm;
-  const theirLastLap = formatLapTime(theirLastTimeRaw);
+  const theirLastLap = formatLapTime(driver.lasttime || driver.lsTm);
+  const theirBestLap = formatLapTime(driver.besttime || driver.btTm);
   const nameStr = num ? `#${num}` : (driver.fullname || driver.nam || driver.nickname || 'Rider').substring(0, 8);
   
-  let gapHtml = '';
+  let gapHtml = ''; let paceDeltaHtml = '<span style="color: #666;">Δ --</span>'; let bestDeltaHtml = '<span style="color: #666;">Δ --</span>';
   
   if (myDriver) {
-    let myDiffStr = String(myDriver.difference || myDriver.df || '0');
-    let theirDiffStr = String(driver.difference || driver.df || '0');
-    let isLapped = myDiffStr.toLowerCase().includes('lap') || theirDiffStr.toLowerCase().includes('lap') || 
-                   myDiffStr.toLowerCase().includes('gir') || theirDiffStr.toLowerCase().includes('gir');
-                   
-    let physicalGapText = '';
-    if (isLapped) {
-      physicalGapText = 'LAPPED';
-    } else {
-      let d1 = parseFloat(myDiffStr.replace('+', '').replace(',', '.')) || 0;
-      let d2 = parseFloat(theirDiffStr.replace('+', '').replace(',', '.')) || 0;
-      let gap = Math.abs(d1 - d2);
-      physicalGapText = `GAP +${gap.toFixed(3)}`;
-    }
-
-    let paceDeltaText = '';
-    let myLastTimeRaw = myDriver.lasttime || myDriver.lsTm;
-    let myMs = parseTimeToMs(formatLapTime(myLastTimeRaw));
-    let theirMs = parseTimeToMs(theirLastLap);
+    let myDiffStr = String(myDriver.gap || myDriver.difference || myDriver.df || '0');
+    let theirDiffStr = String(driver.gap || driver.difference || driver.df || '0');
     
-    if (myMs > 0 && theirMs > 0) {
-      let diffMs = theirMs - myMs;
-      let sign = diffMs > 0 ? '+' : '';
-      let color = diffMs > 0 ? '#22c55e' : '#ef4444'; 
-      paceDeltaText = `<span style="color: ${color};">Δ ${sign}${(diffMs/1000).toFixed(3)}</span>`;
+    // VERIFICA SE UNO DEI DUE E' DOPPIATO
+    let isLapped = isLappedGap(myDiffStr) || isLappedGap(theirDiffStr);
+    let prefix = (parseInt(driver.position || driver.pos, 10) < parseInt(myDriver.position || myDriver.pos, 10)) ? "-" : "+";
+
+    let physicalGapText = 'LAPPED';
+    if (!isLapped) {
+      let gap = Math.abs((parseFloat(myDiffStr.replace('+', '').replace(',', '.')) || 0) - (parseFloat(theirDiffStr.replace('+', '').replace(',', '.')) || 0));
+      physicalGapText = `GAP ${prefix}${gap.toFixed(3)}`;
+    }
+    gapHtml = `<span style="font-size: 1.1rem; color: #ffcc00; margin-top: 4px; margin-bottom: 4px; font-weight: bold;">${physicalGapText}</span>`;
+
+    let myLastMs = parseTimeToMs(formatLapTime(myDriver.lasttime || myDriver.lsTm));
+    let theirLastMs = parseTimeToMs(theirLastLap);
+    if (myLastMs > 0 && theirLastMs > 0) {
+      let diffMs = myLastMs - theirLastMs;
+      paceDeltaHtml = `<span style="color: ${diffMs > 0 ? '#ef4444' : '#22c55e'};">Δ ${diffMs > 0 ? '+' : ''}${(diffMs/1000).toFixed(3)}</span>`;
     }
 
-    gapHtml = `
-      <span style="font-size: 1.1rem; color: #ffcc00; margin-top: 4px; font-weight: bold;">${physicalGapText}</span>
-      <span style="font-size: 1.1rem; font-weight: bold;">${paceDeltaText}</span>
-    `;
+    let myBestMs = parseTimeToMs(formatLapTime(myDriver.besttime || myDriver.btTm));
+    let theirBestMs = parseTimeToMs(theirBestLap);
+    if (myBestMs > 0 && theirBestMs > 0) {
+      let diffMs = myBestMs - theirBestMs;
+      bestDeltaHtml = `<span style="color: ${diffMs > 0 ? '#ef4444' : '#22c55e'};">Δ ${diffMs > 0 ? '+' : ''}${(diffMs/1000).toFixed(3)}</span>`;
+    }
   }
 
   return `
-    <span class="rival-num">${nameStr}</span>
-    <span style="font-size: 1.4rem; color: #ccc;">⏱ ${theirLastLap}</span>
-    ${gapHtml}
+    <span class="rival-num">${nameStr}</span>${gapHtml}
+    <div style="display:flex; flex-direction:column; gap:4px; font-size:1.1rem; font-weight:bold; background:#1a1a1a; padding:6px; border-radius:6px; border:1px solid #333; margin-top:8px; width:100%; min-width:170px;">
+        <span style="color:#ccc; display:flex; justify-content:space-between; align-items:center;"><span>⏱ L: ${theirLastLap}</span> ${paceDeltaHtml}</span>
+        <span style="color:#06b6d4; display:flex; justify-content:space-between; align-items:center;"><span>🔥 B: ${theirBestLap}</span> ${bestDeltaHtml}</span>
+    </div>
   `;
 }
 
 function updateDashboard(driversList) {
-
-  // =========================================================
-  // LOGICA AUTO-LOCK (Inseguimento automatico numero di gara)
-  // =========================================================
   const numInput = document.getElementById('myRaceNumber');
   if (numInput && !selectedDriverId && driversList.length > 0) {
     const targetNum = numInput.value.trim();
     if (targetNum !== "") {
-      // Cerca nei piloti uno che abbia quel preciso numero
       const autoDriver = driversList.find(d => String(d.raceno || d.no) === String(targetNum));
       if (autoDriver) {
-        selectedDriverId = getDriverId(autoDriver);
-        localStorage.setItem('pit_driver_id', selectedDriverId);
-        
-        const selectEl = document.getElementById('driverSelect');
-        if (selectEl) selectEl.value = selectedDriverId;
-        
-        console.log("🎯 Auto-Lock agganciato! Pilota: #" + targetNum);
-        
-        if (typeof sendConfigToLilyGO === "function") {
-          sendConfigToLilyGO();
-        }
+        selectedDriverId = getDriverId(autoDriver); localStorage.setItem('pit_driver_id', selectedDriverId);
+        const selectEl = document.getElementById('driverSelect'); if (selectEl) selectEl.value = selectedDriverId;
       }
     }
   }
 
-  // NUOVO BLOCCO DI SICUREZZA: Se non c'è il pilota, svuota tutto lo schermo e fermati.
-  if (!selectedDriverId) {
-    document.getElementById('pos').innerText = 'P-';
-    document.getElementById('driverAhead').innerHTML = '--';
-    document.getElementById('driverBehind').innerHTML = '--';
-    document.getElementById('gap').innerText = '--';
-    document.getElementById('myDriverNum').innerText = '--';
-    return;
-  }
-
+  if (!selectedDriverId) return;
   const myDriver = driversList.find(d => String(getDriverId(d)) === String(selectedDriverId));
 
   if (myDriver) {
-    myDriverLaps = myDriver.laps || '-';
-    updateBanner();
+    myDriverLaps = myDriver.laps || '-'; updateBanner();
+    let myPos = parseInt(myDriver.position || myDriver.pos, 10) || "-";
+    document.getElementById('pos').innerText = `P${myPos}`;
 
-    let myPos = parseInt(myDriver.position || myDriver.pos, 10);
-    document.getElementById('pos').innerText = `P${myPos || '-'}`;
+    let overallBestMs = Infinity;
+    driversList.forEach(d => {
+      let bMs = parseTimeToMs(formatLapTime(d.besttime || d.btTm));
+      if (bMs > 0 && bMs < overallBestMs) overallBestMs = bMs;
+    });
 
-    const leaderDriver = driversList.find(d => parseInt(d.position || d.pos, 10) === 1);
-    
-    if (myPos === 1) {
-      document.getElementById('gap').innerText = '+0.000';
-    } else if (leaderDriver) {
-      let myBestMs = parseTimeToMs(formatLapTime(myDriver.besttime || myDriver.btTm));
-      let leaderBestMs = parseTimeToMs(formatLapTime(leaderDriver.besttime || leaderDriver.btTm));
-      
-      if (myBestMs > 0 && leaderBestMs > 0) {
-        let gapMs = Math.abs(myBestMs - leaderBestMs);
-        document.getElementById('gap').innerText = `+${(gapMs / 1000).toFixed(3)}`;
-      } else {
-        document.getElementById('gap').innerText = myDriver.difference || myDriver.df ? `+${myDriver.difference || myDriver.df}` : '+0.000';
-      }
-    } else {
-      document.getElementById('gap').innerText = myDriver.difference || myDriver.df ? `+${myDriver.difference || myDriver.df}` : '+0.000';
+    let myBestMs = parseTimeToMs(formatLapTime(myDriver.besttime || myDriver.btTm));
+    let gapText = "--";
+    if (myBestMs > 0 && overallBestMs !== Infinity) {
+      let diffMs = myBestMs - overallBestMs;
+      gapText = diffMs === 0 ? "-0.000" : `+${(diffMs / 1000).toFixed(3)}`; 
     }
+    document.getElementById('gap').innerText = gapText;
 
-    const myNum = myDriver.raceno || myDriver.no || '';
-    document.getElementById('myDriverNum').innerText = myNum ? `#${myNum}` : 'ME';
+    const myNumText = (myDriver.raceno || myDriver.no) ? `#${myDriver.raceno || myDriver.no}` : 'ME';
+    document.getElementById('myDriverNum').innerText = myNumText;
 
-    let stringAhead = '--';
+    let myLastMs = parseTimeToMs(formatLapTime(myDriver.lasttime || myDriver.lsTm));
+    let stringAhead = '--'; let mqttAhead = '--'; let mqttAheadGap = '--'; let mqttAheadGapBL = '--'; let c_a = 0;
+    let stringBehind = '--'; let mqttBehind = '--'; let mqttBehindGap = '--'; let mqttBehindGapBL = '--'; let c_b = 0;
+
+    let myDiffStr = String(myDriver.gap || myDriver.difference || myDriver.df || '0');
+    let myDiffFloat = parseFloat(myDiffStr.replace('+', '').replace(',', '.')) || 0;
+
+    // === GESTIONE AHEAD ===
     if (myPos > 1) {
       const driverAhead = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos - 1);
-      stringAhead = driverAhead ? formatRivalInfo(driverAhead, myDriver) : '--';
+      if (driverAhead) {
+        stringAhead = formatRivalInfo(driverAhead, myDriver);
+        mqttAhead = "#" + (driverAhead.raceno || driverAhead.no || "");
+        let theirLastMs = parseTimeToMs(formatLapTime(driverAhead.lasttime || driverAhead.lsTm));
+        let theirBestMs = parseTimeToMs(formatLapTime(driverAhead.besttime || driverAhead.btTm));
+        let theirDiffStr = String(driverAhead.gap || driverAhead.df || '0');
+        
+        let isLapped = isLappedGap(myDiffStr) || isLappedGap(theirDiffStr);
+
+        if (isLapped) {
+          mqttAheadGap = "LAPPED"; 
+        } else {
+          let theirDiffFloat = parseFloat(theirDiffStr.replace('+', '').replace(',', '.')) || 0;
+          mqttAheadGap = "+" + Math.abs(myDiffFloat - theirDiffFloat).toFixed(3);
+        }
+
+        if (myLastMs > 0 && theirLastMs > 0) { 
+            c_a = (myLastMs <= theirLastMs) ? 1 : 2; 
+            if (!isLapped) {
+                mqttAheadGap = (c_a == 1 ? "-" : "+") + mqttAheadGap.substring(1); 
+            }
+        }
+        
+        if (myBestMs > 0 && theirBestMs > 0) {
+            let diffMsBL = myBestMs - theirBestMs; 
+            mqttAheadGapBL = (diffMsBL > 0 ? "+" : "") + (diffMsBL / 1000).toFixed(3);
+        } else {
+            mqttAheadGapBL = "--";
+        }
+      }
     } else if (myPos === 1) {
-      stringAhead = '<span class="rival-num" style="color:#ffcc00">LEADER</span><span style="font-size: 1.8rem;">🥇</span>';
+      stringAhead = '<span class="rival-num" style="color:#ffcc00">LEADER</span><br><span style="font-size: 1.8rem;">🥇</span>'; mqttAhead = "--"; 
     }
     document.getElementById('driverAhead').innerHTML = stringAhead;
 
-    let stringBehind = '--';
+    // === GESTIONE BEHIND ===
     const driverBehind = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos + 1);
-    
     if (driverBehind) {
       stringBehind = formatRivalInfo(driverBehind, myDriver);
+      mqttBehind = "#" + (driverBehind.raceno || driverBehind.no || "");
+      let theirLastMs = parseTimeToMs(formatLapTime(driverBehind.lasttime || driverBehind.lsTm));
+      let theirBestMs = parseTimeToMs(formatLapTime(driverBehind.besttime || driverBehind.btTm));
+      let theirDiffStr = String(driverBehind.gap || driverBehind.df || '0');
+
+      let isLapped = isLappedGap(myDiffStr) || isLappedGap(theirDiffStr);
+
+      if (isLapped) {
+        mqttBehindGap = "LAPPED"; 
+      } else {
+        let theirDiffFloat = parseFloat(theirDiffStr.replace('+', '').replace(',', '.')) || 0;
+        mqttBehindGap = "+" + Math.abs(myDiffFloat - theirDiffFloat).toFixed(3);
+      }
+
+      if (myLastMs > 0 && theirLastMs > 0) { 
+          c_b = (myLastMs <= theirLastMs) ? 1 : 2; 
+          if (!isLapped) {
+              mqttBehindGap = (c_b == 1 ? "-" : "+") + mqttBehindGap.substring(1); 
+          }
+      }
+
+      if (myBestMs > 0 && theirBestMs > 0) {
+          let diffMsBL = myBestMs - theirBestMs; 
+          mqttBehindGapBL = (diffMsBL > 0 ? "+" : "") + (diffMsBL / 1000).toFixed(3);
+      } else {
+          mqttBehindGapBL = "--";
+      }
     } else if (myPos > 0 && driversList.length > 0) {
-      stringBehind = '<span class="rival-num" style="color:#888">CLEAR</span>';
+      stringBehind = '<span class="rival-num" style="color:#888">CLEAR</span>'; mqttBehind = "--"; 
     }
     document.getElementById('driverBehind').innerHTML = stringBehind;
+    
+    if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
+      
+      // PACCHETTO "LITE"
+      const payloadLite = JSON.stringify({
+        p: String(myPos), gap: gapText, 
+        ahead: mqttAhead, ahead_html: "-", gap_a: mqttAheadGap, gap_a_bl: mqttAheadGapBL, time_a_ll: "-", time_a_bl: "-",
+        behind: mqttBehind, behind_html: "-", gap_b: mqttBehindGap, gap_b_bl: mqttBehindGapBL, time_b_ll: "-", time_b_bl: "-",
+        num: myNumText, time: sessionTimeLeft, laps: String(myDriverLaps),
+        ca: c_a, cb: c_b, cab: 0, cbb: 1
+      });
+      const msgLite = new Paho.MQTT.Message(payloadLite);
+      msgLite.destinationName = "pitboard/" + currentDeviceId + "/live";
+      try { mqttClient.send(msgLite); } catch(e) {}
+
+      // PACCHETTO "FULL"
+      const payloadFull = JSON.stringify({
+        p: String(myPos), gap: gapText, ahead: mqttAhead, ahead_html: stringAhead,
+        behind: mqttBehind, behind_html: stringBehind, num: myNumText, time: sessionTimeLeft, laps: String(myDriverLaps)
+      });
+      const msgFull = new Paho.MQTT.Message(payloadFull);
+      msgFull.destinationName = "pitboard/" + currentDeviceId + "/live_app";
+      try { mqttClient.send(msgFull); } catch(e) {}
+    }
 
   } else {
-    document.getElementById('pos').innerText = 'P-';
-    document.getElementById('driverAhead').innerHTML = '--';
-    document.getElementById('driverBehind').innerHTML = '--';
-    document.getElementById('gap').innerText = '--';
-    document.getElementById('myDriverNum').innerText = '--';
+    document.getElementById('pos').innerText = 'P-'; document.getElementById('driverAhead').innerHTML = '--';
+    document.getElementById('driverBehind').innerHTML = '--'; document.getElementById('gap').innerText = '--'; document.getElementById('myDriverNum').innerText = '--';
+    if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
+      const resetLite = JSON.stringify({ 
+        p: "-", gap: "--", 
+        ahead: "--", ahead_html: "-", gap_a: "--", gap_a_bl: "--", time_a_ll: "-", time_a_bl: "-",
+        behind: "--", behind_html: "-", gap_b: "--", gap_b_bl: "--", time_b_ll: "-", time_b_bl: "-",
+        num: "--", time: "--:--", laps: "-", ca: 0, cb: 0, cab: 0, cbb: 2 
+      });
+      const msgResetLite = new Paho.MQTT.Message(resetLite);
+      msgResetLite.destinationName = "pitboard/" + currentDeviceId + "/live";
+      try { mqttClient.send(msgResetLite); } catch(e) {}
+    }
   }
 }
 
@@ -553,12 +641,9 @@ function populateDriverDropdown(drivers) {
   if (select.options.length <= 1 && drivers.length > 0) {
     select.innerHTML = '<option value="">Select Rider...</option>';
     drivers.forEach(d => {
-      const opt = document.createElement('option');
-      opt.value = getDriverId(d); 
-      const num = d.raceno || d.no || '';
-      const name = d.fullname || d.nickname || d.nam || `Rider ${getDriverId(d)}`;
+      const opt = document.createElement('option'); opt.value = getDriverId(d); 
+      const num = d.raceno || d.no || ''; const name = d.fullname || d.nickname || d.nam || `Rider ${getDriverId(d)}`;
       opt.textContent = num ? `#${num} ${name}` : name;
-      
       if (String(opt.value) === String(selectedDriverId)) opt.selected = true;
       select.appendChild(opt);
     });
@@ -566,14 +651,79 @@ function populateDriverDropdown(drivers) {
   }
 }
 
+// === AVVIO AUTOMATICO AL REFRESH DELLA PAGINA ===
 if (currentRaceId) {
-  if (currentRaceId.includes('-')) {
-    activeEngine = 'mylaps';
-    document.getElementById('raceLinkInput').value = `https://speedhive.mylaps.com/livetiming/EVENT/sessions/${currentRaceId}`;
+  if (activeEngine === 'mylaps') {
+    document.getElementById('raceLinkInput').value = `https://speedhive.mylaps.com/livetiming/EVENT/sessions/${currentRaceId}`; 
     connectMylaps(currentRaceId);
+  } else if (activeEngine === 'ficr') {
+    document.getElementById('raceLinkInput').value = `https://www.livetiming.ficr.it/${currentRaceId}/`; 
+    connectFicr(currentRaceId);
   } else {
-    activeEngine = 'time2race';
-    document.getElementById('raceLinkInput').value = `https://stg.mk.time2race.it/race/${currentRaceId}/`;
+    document.getElementById('raceLinkInput').value = `https://stg.mk.time2race.it/race/${currentRaceId}/`; 
     connectTime2Race();
   }
 }
+
+const mqttClient = new Paho.MQTT.Client("broker.hivemq.com", 8884, "/mqtt", "PitWall_Web_" + parseInt(Math.random() * 100000));
+mqttClient.onConnectionLost = function(responseObject) { isMqttConnected = false; updatePairingUI(); setTimeout(connectMQTT, 3000); };
+mqttClient.onMessageArrived = function(message) {};
+
+function connectMQTT() {
+  mqttClient.connect({
+    useSSL: true, timeout: 10,
+    onSuccess: function() { isMqttConnected = true; updatePairingUI(); },
+    onFailure: function(err) { isMqttConnected = false; updatePairingUI(); setTimeout(connectMQTT, 5000); }
+  });
+}
+
+function sendConfigToLilyGO() {
+  if (!currentRaceId || !selectedDriverId || !isMqttConnected || currentDeviceId === "") return;
+  const payload = JSON.stringify({ engine: activeEngine, raceId: currentRaceId, driverId: selectedDriverId });
+  const message = new Paho.MQTT.Message(payload);
+  message.destinationName = "pitboard/" + currentDeviceId + "/config"; message.retained = true; 
+  try { mqttClient.send(message); } catch(e) {}
+}
+
+window.sendPitCommand = function(commandText, colorCode) {
+  if (!isMqttConnected || currentDeviceId === "") return;
+  const payload = JSON.stringify({ cmd: commandText, color: colorCode });
+  const message = new Paho.MQTT.Message(payload);
+  message.destinationName = "pitboard/" + currentDeviceId + "/command"; message.retained = false; 
+  try {
+    mqttClient.send(message);
+    document.body.style.border = "4px solid " + colorCode;
+    setTimeout(() => { document.body.style.border = "none"; }, 500);
+  } catch(e) {}
+};
+
+window.sendCustomMessage = function() {
+    const inputField = document.getElementById("customTextInput");
+    const colorPicker = document.getElementById("customColorPicker");
+    
+    let customText = inputField.value.trim().toUpperCase();
+    let chosenColor = colorPicker.value.toUpperCase(); 
+
+    if (customText === "") return; 
+
+    if (!isMqttConnected || currentDeviceId === "") {
+        alert("Board non connessa!");
+        return;
+    }
+
+    const payload = JSON.stringify({ cmd: customText, color: chosenColor });
+    const message = new Paho.MQTT.Message(payload);
+    message.destinationName = "pitboard/" + currentDeviceId + "/command"; 
+    message.retained = false; 
+    
+    try {
+        mqttClient.send(message); 
+        document.body.style.border = "4px solid " + chosenColor;
+        setTimeout(() => { document.body.style.border = "none"; }, 500);
+        inputField.value = "";
+    } catch(e) {
+        console.error("Errore invio custom message", e);
+    }
+};
+
+connectMQTT();
