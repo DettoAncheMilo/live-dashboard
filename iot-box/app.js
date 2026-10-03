@@ -271,32 +271,47 @@ async function pollFicr(eventName, sessionId) {
 
     const response = await fetch(proxyUrl + encodeURIComponent(dataUrl));
     const rawText = await response.text();
-    const parsedData = JSON.parse(rawText);
+    
+    let parsedData;
+    try {
+      parsedData = JSON.parse(rawText);
+    } catch(e) {
+      console.error("Errore parsing JSON da FICR (salto il ciclo):", rawText.substring(0, 50));
+      window.ficrTimeout = setTimeout(() => pollFicr(eventName, sessionId), 3000);
+      return;
+    }
 
-    if (Array.isArray(parsedData) && parsedData.length > 0) {
+    // Controllo che i dati abbiano almeno 2 elementi (info sessione + array piloti)
+    if (Array.isArray(parsedData) && parsedData.length > 1) {
       const sessionInfo = parsedData[0];
-      // Nel JSON FICR "j" o "k" nell'header rappresentano spesso il tempo sessione
+      const driversArray = parsedData[1]; // <--- ECCO L'ARRAY DEI PILOTI VERO E PROPRIO
+
+      // "j" o "k" di solito indicano il tempo rimanente della sessione
       sessionTimeLeft = sessionInfo.j || sessionInfo.k || "--:--";
       updateBanner();
 
       const mappedDrivers = [];
-      for (let i = 1; i < parsedData.length; i++) {
-        const d = parsedData[i];
-        if (d.m && d.m !== "00:00.000") { // Escludiamo chi non ha tempi
-          mappedDrivers.push({
-            id: d.a || `ficr_${i}`, 
-            raceno: d.b || d.a,
-            fullname: d.c || "Rider",
-            position: d.r,
-            lasttime: d.h,
-            besttime: d.m,
-            difference: (d.s && d.s !== "--") ? d.s : "",
-            laps: d.j
-          });
+      
+      // Ora ciclo correttamente dentro driversArray
+      if (Array.isArray(driversArray)) {
+        for (let i = 0; i < driversArray.length; i++) {
+          const d = driversArray[i];
+          if (d.m && d.m !== "00:00.000") { // Escludiamo chi non ha tempi
+            mappedDrivers.push({
+              id: d.a || `ficr_${i}`, 
+              raceno: d.b || d.a,
+              fullname: d.c || "Rider",
+              position: d.r, // Posizione
+              lasttime: d.h, // Ultimo giro
+              besttime: d.m, // Best lap
+              difference: (d.s && d.s !== "--") ? d.s : "",
+              laps: d.j // Giri completati
+            });
+          }
         }
       }
 
-      // Aggiornamento array globale
+      // Aggiornamento array globale della Web App
       mappedDrivers.forEach(newD => {
         const idx = lastKnownDrivers.findIndex(oldD => String(oldD.id) === String(newD.id));
         if (idx !== -1) lastKnownDrivers[idx] = { ...lastKnownDrivers[idx], ...newD };
@@ -308,10 +323,10 @@ async function pollFicr(eventName, sessionId) {
       updateDashboard(lastKnownDrivers);
     }
   } catch (error) {
-    console.error("Errore download dati FICR:", error);
+    console.error("Errore fetch dati FICR:", error);
   }
 
-  // Polling ciclico ogni 3 secondi per FICR
+  // Polling ciclico ogni 3 secondi
   window.ficrTimeout = setTimeout(() => pollFicr(eventName, sessionId), 3000);
 }
 // === FINE FICR INTEGRATION ===
