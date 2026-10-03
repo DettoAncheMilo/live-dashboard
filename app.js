@@ -1,6 +1,6 @@
 let selectedDriverId = localStorage.getItem('pit_driver_id') || null;
 let currentRaceId = localStorage.getItem('pit_race_id') || null;
-let activeEngine = localStorage.getItem('pit_active_engine') || null; // Aggiunto salvataggio engine
+let activeEngine = localStorage.getItem('pit_active_engine') || null;
 let ws = null; 
 let lastKnownDrivers = []; 
 
@@ -15,11 +15,29 @@ if ('wakeLock' in navigator) {
   navigator.wakeLock.request('screen').catch(console.error);
 }
 
-// === NUOVA FUNZIONE: Riconoscimento Doppiaggi ===
 function isLappedGap(gapStr) {
   if (!gapStr) return false;
   const s = String(gapStr).toLowerCase();
   return s.includes('lap') || s.includes('lp');
+}
+
+// === NUOVA FUNZIONE: Convertitore Gaps Universale ===
+function parseGapToMs(gapStr) {
+  if (!gapStr) return 0;
+  let str = String(gapStr).trim().toLowerCase();
+  if (str === '--' || str === '' || isLappedGap(str)) return 0;
+  
+  // Rimuove segni + e converte virgole in punti
+  str = str.replace('+', '').replace(',', '.');
+  
+  // Se è formato orario FICR (es. 00:01.234) usiamo la funzione già pronta
+  if (str.includes(':')) {
+      return parseTimeToMs(str); 
+  }
+  
+  // Se è decimale classico (es. 1.234)
+  let val = parseFloat(str);
+  return isNaN(val) ? 0 : val * 1000;
 }
 
 function updatePairingUI() {
@@ -164,10 +182,9 @@ function loadNewRace() {
       setButtonState('error'); alert("Invalid Mylaps link.");
     }
   } else if (inputUrl.includes('livetiming.ficr.it')) {
-    // Es: https://www.livetiming.ficr.it/cronoagrigento/
     const match = inputUrl.match(/livetiming\.ficr\.it\/([^\/]+)/);
     if (match && match[1]) {
-      currentRaceId = match[1]; // es: cronoagrigento
+      currentRaceId = match[1];
       activeEngine = 'ficr';
       localStorage.setItem('pit_race_id', currentRaceId);
       localStorage.setItem('pit_active_engine', activeEngine);
@@ -195,7 +212,7 @@ function stopSession() {
 
   if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); ws = null; }
   if (window.wsTimeout) clearTimeout(window.wsTimeout);
-  if (window.ficrTimeout) clearTimeout(window.ficrTimeout); // Clear per FICR
+  if (window.ficrTimeout) clearTimeout(window.ficrTimeout);
   
   currentRaceId = null; activeEngine = null;
   localStorage.removeItem('pit_race_id');
@@ -230,7 +247,6 @@ document.addEventListener('change', function(event) {
   if (event.target && event.target.id === 'driverSelect') changeDriver();
 });
 
-// === FICR INTEGRATION ===
 async function connectFicr(eventName) {
   if (!currentRaceId || activeEngine !== 'ficr') return;
   if (window.ficrTimeout) clearTimeout(window.ficrTimeout);
@@ -238,24 +254,14 @@ async function connectFicr(eventName) {
   try {
     const proxyUrl = 'https://mylaps-proxy.nico-mila91.workers.dev/?url=';
     const baseUrl = `https://www.livetiming.ficr.it/${eventName}/`;
-    
-    // 1. Scarichiamo l'HTML della gara usando il tuo proxy per evitare blocchi CORS
     const response = await fetch(proxyUrl + encodeURIComponent(baseUrl));
     const htmlText = await response.text();
-
-    // 2. Estraiamo la variabile 'c' (es: c=ca52cc4d) 
     const cMatch = htmlText.match(/c=([a-fA-F0-9]+)/);
     const sessionId = cMatch ? cMatch[1] : '';
 
-    if (!sessionId) {
-      console.warn("Codice Sessione FICR non trovato nell'HTML. Provo il fallback.");
-    }
-
     setButtonState('connected');
     pollFicr(eventName, sessionId);
-
   } catch (error) {
-    console.error("Errore inizializzazione FICR:", error);
     setButtonState('error');
     document.getElementById('sessionStatus').innerHTML = "⚠️ ERRORE CONNESSIONE FICR";
   }
@@ -276,42 +282,36 @@ async function pollFicr(eventName, sessionId) {
     try {
       parsedData = JSON.parse(rawText);
     } catch(e) {
-      console.error("Errore parsing JSON da FICR (salto il ciclo):", rawText.substring(0, 50));
       window.ficrTimeout = setTimeout(() => pollFicr(eventName, sessionId), 3000);
       return;
     }
 
-    // Controllo che i dati abbiano almeno 2 elementi (info sessione + array piloti)
     if (Array.isArray(parsedData) && parsedData.length > 1) {
       const sessionInfo = parsedData[0];
-      const driversArray = parsedData[1]; // <--- ECCO L'ARRAY DEI PILOTI VERO E PROPRIO
+      const driversArray = parsedData[1]; 
 
-      // "j" o "k" di solito indicano il tempo rimanente della sessione
       sessionTimeLeft = sessionInfo.j || sessionInfo.k || "--:--";
       updateBanner();
 
       const mappedDrivers = [];
-      
-      // Ora ciclo correttamente dentro driversArray
       if (Array.isArray(driversArray)) {
         for (let i = 0; i < driversArray.length; i++) {
           const d = driversArray[i];
-          if (d.m && d.m !== "00:00.000") { // Escludiamo chi non ha tempi
+          if (d.m && d.m !== "00:00.000") {
             mappedDrivers.push({
               id: d.a || `ficr_${i}`, 
               raceno: d.b || d.a,
               fullname: d.c || "Rider",
-              position: d.r, // Posizione
-              lasttime: d.h, // Ultimo giro
-              besttime: d.m, // Best lap
+              position: d.r, 
+              lasttime: d.h, 
+              besttime: d.m, 
               difference: (d.s && d.s !== "--") ? d.s : "",
-              laps: d.j // Giri completati
+              laps: d.j 
             });
           }
         }
       }
 
-      // Aggiornamento array globale della Web App
       mappedDrivers.forEach(newD => {
         const idx = lastKnownDrivers.findIndex(oldD => String(oldD.id) === String(newD.id));
         if (idx !== -1) lastKnownDrivers[idx] = { ...lastKnownDrivers[idx], ...newD };
@@ -322,14 +322,10 @@ async function pollFicr(eventName, sessionId) {
       populateDriverDropdown(lastKnownDrivers);
       updateDashboard(lastKnownDrivers);
     }
-  } catch (error) {
-    console.error("Errore fetch dati FICR:", error);
-  }
+  } catch (error) {}
 
-  // Polling ciclico ogni 3 secondi
   window.ficrTimeout = setTimeout(() => pollFicr(eventName, sessionId), 3000);
 }
-// === FINE FICR INTEGRATION ===
 
 function connectTime2Race() {
   if (!currentRaceId || activeEngine !== 'time2race') return;
@@ -433,7 +429,7 @@ function formatRivalInfo(driver, myDriver) {
   const num = driver.raceno || driver.no || '';
   const theirLastLap = formatLapTime(driver.lasttime || driver.lsTm);
   const theirBestLap = formatLapTime(driver.besttime || driver.btTm);
-  const nameStr = num ? `#${num}` : (driver.fullname || driver.nam || driver.nickname || 'Rider').substring(0, 8);
+  const nameStr = num ? `#${String(num).trim()}` : (driver.fullname || driver.nam || driver.nickname || 'Rider').substring(0, 8);
   
   let gapHtml = ''; let paceDeltaHtml = '<span style="color: #666;">Δ --</span>'; let bestDeltaHtml = '<span style="color: #666;">Δ --</span>';
   
@@ -441,14 +437,17 @@ function formatRivalInfo(driver, myDriver) {
     let myDiffStr = String(myDriver.gap || myDriver.difference || myDriver.df || '0');
     let theirDiffStr = String(driver.gap || driver.difference || driver.df || '0');
     
-    // VERIFICA SE UNO DEI DUE E' DOPPIATO
     let isLapped = isLappedGap(myDiffStr) || isLappedGap(theirDiffStr);
-    let prefix = (parseInt(driver.position || driver.pos, 10) < parseInt(myDriver.position || myDriver.pos, 10)) ? "-" : "+";
+    let myPosInt = parseInt(myDriver.position || myDriver.pos, 10) || 0;
+    let theirPosInt = parseInt(driver.position || driver.pos, 10) || 0;
+    let prefix = (theirPosInt > 0 && myPosInt > 0 && theirPosInt < myPosInt) ? "-" : "+";
 
     let physicalGapText = 'LAPPED';
     if (!isLapped) {
-      let gap = Math.abs((parseFloat(myDiffStr.replace('+', '').replace(',', '.')) || 0) - (parseFloat(theirDiffStr.replace('+', '').replace(',', '.')) || 0));
-      physicalGapText = `GAP ${prefix}${gap.toFixed(3)}`;
+      let myDiffMs = parseGapToMs(myDiffStr);
+      let theirDiffMs = parseGapToMs(theirDiffStr);
+      let gapMs = Math.abs(myDiffMs - theirDiffMs);
+      physicalGapText = `GAP ${prefix}${(gapMs/1000).toFixed(3)}`;
     }
     gapHtml = `<span style="font-size: 1.1rem; color: #ffcc00; margin-top: 4px; margin-bottom: 4px; font-weight: bold;">${physicalGapText}</span>`;
 
@@ -459,10 +458,10 @@ function formatRivalInfo(driver, myDriver) {
       paceDeltaHtml = `<span style="color: ${diffMs > 0 ? '#ef4444' : '#22c55e'};">Δ ${diffMs > 0 ? '+' : ''}${(diffMs/1000).toFixed(3)}</span>`;
     }
 
-    let myBestMs = parseTimeToMs(formatLapTime(myDriver.besttime || myDriver.btTm));
-    let theirBestMs = parseTimeToMs(theirBestLap);
-    if (myBestMs > 0 && theirBestMs > 0) {
-      let diffMs = myBestMs - theirBestMs;
+    let myBestMs2 = parseTimeToMs(formatLapTime(myDriver.besttime || myDriver.btTm));
+    let theirBestMs2 = parseTimeToMs(theirBestLap);
+    if (myBestMs2 > 0 && theirBestMs2 > 0) {
+      let diffMs = myBestMs2 - theirBestMs2;
       bestDeltaHtml = `<span style="color: ${diffMs > 0 ? '#ef4444' : '#22c55e'};">Δ ${diffMs > 0 ? '+' : ''}${(diffMs/1000).toFixed(3)}</span>`;
     }
   }
@@ -479,9 +478,9 @@ function formatRivalInfo(driver, myDriver) {
 function updateDashboard(driversList) {
   const numInput = document.getElementById('myRaceNumber');
   if (numInput && !selectedDriverId && driversList.length > 0) {
-    const targetNum = numInput.value.trim();
+    const targetNum = String(numInput.value).trim();
     if (targetNum !== "") {
-      const autoDriver = driversList.find(d => String(d.raceno || d.no) === String(targetNum));
+      const autoDriver = driversList.find(d => String(d.raceno || d.no).trim() === targetNum);
       if (autoDriver) {
         selectedDriverId = getDriverId(autoDriver); localStorage.setItem('pit_driver_id', selectedDriverId);
         const selectEl = document.getElementById('driverSelect'); if (selectEl) selectEl.value = selectedDriverId;
@@ -490,11 +489,14 @@ function updateDashboard(driversList) {
   }
 
   if (!selectedDriverId) return;
-  const myDriver = driversList.find(d => String(getDriverId(d)) === String(selectedDriverId));
+
+  const myIndex = driversList.findIndex(d => String(getDriverId(d)) === String(selectedDriverId));
+  if (myIndex === -1) return;
+  const myDriver = driversList[myIndex];
 
   if (myDriver) {
     myDriverLaps = myDriver.laps || '-'; updateBanner();
-    let myPos = parseInt(myDriver.position || myDriver.pos, 10) || "-";
+    let myPos = parseInt(myDriver.position || myDriver.pos, 10) || (myIndex + 1);
     document.getElementById('pos').innerText = `P${myPos}`;
 
     let overallBestMs = Infinity;
@@ -511,7 +513,7 @@ function updateDashboard(driversList) {
     }
     document.getElementById('gap').innerText = gapText;
 
-    const myNumText = (myDriver.raceno || myDriver.no) ? `#${myDriver.raceno || myDriver.no}` : 'ME';
+    const myNumText = String(myDriver.raceno || myDriver.no || '').trim() ? `#${String(myDriver.raceno || myDriver.no).trim()}` : 'ME';
     document.getElementById('myDriverNum').innerText = myNumText;
 
     let myLastMs = parseTimeToMs(formatLapTime(myDriver.lasttime || myDriver.lsTm));
@@ -519,68 +521,68 @@ function updateDashboard(driversList) {
     let stringBehind = '--'; let mqttBehind = '--'; let mqttBehindGap = '--'; let mqttBehindGapBL = '--'; let c_b = 0;
 
     let myDiffStr = String(myDriver.gap || myDriver.difference || myDriver.df || '0');
-    let myDiffFloat = parseFloat(myDiffStr.replace('+', '').replace(',', '.')) || 0;
+    let myDiffMs = parseGapToMs(myDiffStr);
 
     // === GESTIONE AHEAD ===
-    if (myPos > 1) {
-      const driverAhead = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos - 1);
-      if (driverAhead) {
-        stringAhead = formatRivalInfo(driverAhead, myDriver);
-        mqttAhead = "#" + (driverAhead.raceno || driverAhead.no || "");
-        let theirLastMs = parseTimeToMs(formatLapTime(driverAhead.lasttime || driverAhead.lsTm));
-        let theirBestMs = parseTimeToMs(formatLapTime(driverAhead.besttime || driverAhead.btTm));
-        let theirDiffStr = String(driverAhead.gap || driverAhead.df || '0');
-        
-        let isLapped = isLappedGap(myDiffStr) || isLappedGap(theirDiffStr);
+    if (myIndex > 0) {
+      const driverAhead = driversList[myIndex - 1]; 
+      stringAhead = formatRivalInfo(driverAhead, myDriver);
+      mqttAhead = "#" + String(driverAhead.raceno || driverAhead.no || "").trim();
+      
+      let theirLastMs = parseTimeToMs(formatLapTime(driverAhead.lasttime || driverAhead.lsTm));
+      let theirBestMs = parseTimeToMs(formatLapTime(driverAhead.besttime || driverAhead.btTm));
+      let theirDiffStr = String(driverAhead.gap || driverAhead.difference || driverAhead.df || '0');
+      let theirDiffMs = parseGapToMs(theirDiffStr);
+      
+      let isLapped = isLappedGap(myDiffStr) || isLappedGap(theirDiffStr);
 
-        if (isLapped) {
-          mqttAheadGap = "LAPPED"; 
-        } else {
-          let theirDiffFloat = parseFloat(theirDiffStr.replace('+', '').replace(',', '.')) || 0;
-          mqttAheadGap = "+" + Math.abs(myDiffFloat - theirDiffFloat).toFixed(3);
-        }
-
-        if (myLastMs > 0 && theirLastMs > 0) { 
-            c_a = (myLastMs <= theirLastMs) ? 1 : 2; 
-            if (!isLapped) {
-                mqttAheadGap = (c_a == 1 ? "-" : "+") + mqttAheadGap.substring(1); 
-            }
-        }
-        
-        if (myBestMs > 0 && theirBestMs > 0) {
-            let diffMsBL = myBestMs - theirBestMs; 
-            mqttAheadGapBL = (diffMsBL > 0 ? "+" : "") + (diffMsBL / 1000).toFixed(3);
-        } else {
-            mqttAheadGapBL = "--";
-        }
+      if (isLapped) {
+        mqttAheadGap = "LAPPED"; 
+      } else {
+        mqttAheadGap = "+" + (Math.abs(myDiffMs - theirDiffMs) / 1000).toFixed(3);
       }
-    } else if (myPos === 1) {
+
+      if (myLastMs > 0 && theirLastMs > 0) { 
+          c_a = (myLastMs <= theirLastMs) ? 1 : 2; 
+          if (!isLapped && mqttAheadGap !== "+0.000") {
+              mqttAheadGap = (c_a === 1 ? "-" : "+") + mqttAheadGap.substring(1); 
+          }
+      }
+      
+      if (myBestMs > 0 && theirBestMs > 0) {
+          let diffMsBL = myBestMs - theirBestMs; 
+          mqttAheadGapBL = (diffMsBL > 0 ? "+" : "") + (diffMsBL / 1000).toFixed(3);
+      } else {
+          mqttAheadGapBL = "--";
+      }
+    } else if (myIndex === 0) {
       stringAhead = '<span class="rival-num" style="color:#ffcc00">LEADER</span><br><span style="font-size: 1.8rem;">🥇</span>'; mqttAhead = "--"; 
     }
     document.getElementById('driverAhead').innerHTML = stringAhead;
 
     // === GESTIONE BEHIND ===
-    const driverBehind = driversList.find(d => parseInt(d.position || d.pos, 10) === myPos + 1);
-    if (driverBehind) {
+    if (myIndex < driversList.length - 1) {
+      const driverBehind = driversList[myIndex + 1]; 
       stringBehind = formatRivalInfo(driverBehind, myDriver);
-      mqttBehind = "#" + (driverBehind.raceno || driverBehind.no || "");
+      mqttBehind = "#" + String(driverBehind.raceno || driverBehind.no || "").trim();
+      
       let theirLastMs = parseTimeToMs(formatLapTime(driverBehind.lasttime || driverBehind.lsTm));
       let theirBestMs = parseTimeToMs(formatLapTime(driverBehind.besttime || driverBehind.btTm));
-      let theirDiffStr = String(driverBehind.gap || driverBehind.df || '0');
+      let theirDiffStr = String(driverBehind.gap || driverBehind.difference || driverBehind.df || '0');
+      let theirDiffMs = parseGapToMs(theirDiffStr);
 
       let isLapped = isLappedGap(myDiffStr) || isLappedGap(theirDiffStr);
 
       if (isLapped) {
         mqttBehindGap = "LAPPED"; 
       } else {
-        let theirDiffFloat = parseFloat(theirDiffStr.replace('+', '').replace(',', '.')) || 0;
-        mqttBehindGap = "+" + Math.abs(myDiffFloat - theirDiffFloat).toFixed(3);
+        mqttBehindGap = "+" + (Math.abs(myDiffMs - theirDiffMs) / 1000).toFixed(3);
       }
 
       if (myLastMs > 0 && theirLastMs > 0) { 
           c_b = (myLastMs <= theirLastMs) ? 1 : 2; 
-          if (!isLapped) {
-              mqttBehindGap = (c_b == 1 ? "-" : "+") + mqttBehindGap.substring(1); 
+          if (!isLapped && mqttBehindGap !== "+0.000") {
+              mqttBehindGap = (c_b === 1 ? "-" : "+") + mqttBehindGap.substring(1); 
           }
       }
 
@@ -590,14 +592,12 @@ function updateDashboard(driversList) {
       } else {
           mqttBehindGapBL = "--";
       }
-    } else if (myPos > 0 && driversList.length > 0) {
+    } else if (myIndex >= 0 && driversList.length > 0) {
       stringBehind = '<span class="rival-num" style="color:#888">CLEAR</span>'; mqttBehind = "--"; 
     }
     document.getElementById('driverBehind').innerHTML = stringBehind;
     
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
-      
-      // PACCHETTO "LITE"
       const payloadLite = JSON.stringify({
         p: String(myPos), gap: gapText, 
         ahead: mqttAhead, ahead_html: "-", gap_a: mqttAheadGap, gap_a_bl: mqttAheadGapBL, time_a_ll: "-", time_a_bl: "-",
@@ -609,7 +609,6 @@ function updateDashboard(driversList) {
       msgLite.destinationName = "pitboard/" + currentDeviceId + "/live";
       try { mqttClient.send(msgLite); } catch(e) {}
 
-      // PACCHETTO "FULL"
       const payloadFull = JSON.stringify({
         p: String(myPos), gap: gapText, ahead: mqttAhead, ahead_html: stringAhead,
         behind: mqttBehind, behind_html: stringBehind, num: myNumText, time: sessionTimeLeft, laps: String(myDriverLaps)
@@ -651,7 +650,6 @@ function populateDriverDropdown(drivers) {
   }
 }
 
-// === AVVIO AUTOMATICO AL REFRESH DELLA PAGINA ===
 if (currentRaceId) {
   if (activeEngine === 'mylaps') {
     document.getElementById('raceLinkInput').value = `https://speedhive.mylaps.com/livetiming/EVENT/sessions/${currentRaceId}`; 
