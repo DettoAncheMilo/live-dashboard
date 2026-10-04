@@ -11,7 +11,7 @@ let myDriverLaps = "-";
 let currentDeviceId = ""; 
 let isMqttConnected = false;
 
-// Variabile di stato per distinguere Gara / Qualifica (se non è gara, assumiamo Time Attack/Qualifica)
+// Variabile di stato per distinguere Gara / Qualifica
 let isRaceSession = false;
 
 // Anti-standby per il telefono
@@ -25,21 +25,17 @@ function isLappedGap(gapStr) {
   return s.includes('lap') || s.includes('lp');
 }
 
-// === Convertitore Gaps Universale ===
 function parseGapToMs(gapStr) {
   if (!gapStr) return 0;
   let str = String(gapStr).trim().toLowerCase();
   if (str === '--' || str === '' || isLappedGap(str)) return 0;
   
-  // Rimuove segni + e converte virgole in punti
   str = str.replace('+', '').replace(',', '.');
   
-  // Se è formato orario FICR (es. 00:01.234) usiamo la funzione già pronta
   if (str.includes(':')) {
       return parseTimeToMs(str); 
   }
   
-  // Se è decimale classico (es. 1.234)
   let val = parseFloat(str);
   return isNaN(val) ? 0 : val * 1000;
 }
@@ -281,7 +277,6 @@ function changeDriver() {
   if (typeof sendConfigToLilyGO === "function") sendConfigToLilyGO();
 }
 
-// === Funzione Cambio Target ===
 function changeTarget() {
   const selectElement = document.getElementById('targetSelect');
   if(!selectElement) return;
@@ -298,7 +293,6 @@ document.addEventListener('change', function(event) {
   if (event.target && event.target.id === 'targetSelect') changeTarget(); 
 });
 
-// === FICR TIMING ===
 async function connectFicr(eventName) {
   if (!currentRaceId || activeEngine !== 'ficr') return;
   if (window.ficrTimeout) clearTimeout(window.ficrTimeout);
@@ -385,7 +379,6 @@ async function pollFicr(eventName, sessionId) {
   window.ficrTimeout = setTimeout(() => pollFicr(eventName, sessionId), 3000);
 }
 
-// === TIME2RACE ===
 function connectTime2Race() {
   if (!currentRaceId || activeEngine !== 'time2race') return;
   if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); }
@@ -425,7 +418,6 @@ function connectTime2Race() {
   ws.onclose = function() { window.wsTimeout = setTimeout(connectTime2Race, 3000); };
 }
 
-// === MYLAPS ===
 async function connectMylaps(sessionId) {
   if (!currentRaceId || activeEngine !== 'mylaps') return;
   if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); }
@@ -496,7 +488,6 @@ async function connectMylaps(sessionId) {
   }
 }
 
-// === MGM TIMING INTEGRATION ===
 async function connectMgm(originalUrl) {
   if (!currentRaceId || activeEngine !== 'mgm') return;
   if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); }
@@ -605,7 +596,6 @@ async function connectMgm(originalUrl) {
     setButtonState('error'); document.getElementById('sessionStatus').innerHTML = "⚠️ CONNESSIONE MGM FALLITA";
   }
 }
-// === FINE MGM TIMING ===
 
 function formatRivalInfo(driver, myDriver) {
   if (!driver) return '--';
@@ -658,7 +648,6 @@ function formatRivalInfo(driver, myDriver) {
   `;
 }
 
-// === Popolamento Tendina Target ===
 function populateTargetDropdown(drivers) {
   const select = document.getElementById('targetSelect');
   if (!select) return;
@@ -705,7 +694,6 @@ function updateDashboard(driversList) {
   if (myIndex === -1) return;
   const myDriver = driversList[myIndex];
   
-  // CERCA IL TARGET SELEZIONATO
   const myTarget = selectedTargetId ? driversList.find(d => String(getDriverId(d)) === String(selectedTargetId)) : null;
 
   if (myDriver) {
@@ -737,7 +725,6 @@ function updateDashboard(driversList) {
     let myDiffStr = String(myDriver.gap || myDriver.difference || myDriver.df || '0');
     let myDiffMs = parseGapToMs(myDiffStr);
 
-    // === ELABORAZIONE TARGET HUNT ===
     let t_pos = "--", t_num = "--", t_last = "--", t_best = "--", t_pace_delta = "--", t_total_gap = "--";
     let flag_catch = 0; 
 
@@ -747,7 +734,6 @@ function updateDashboard(driversList) {
       t_last = formatLapTime(myTarget.lasttime || myTarget.lsTm);
       t_best = formatLapTime(myTarget.besttime || myTarget.btTm);
 
-      // --- LOGICA PACE DELTA ---
       let targetLastMs = parseTimeToMs(t_last);
       if (myLastMs > 0 && targetLastMs > 0) {
         let diffMs = myLastMs - targetLastMs;
@@ -755,7 +741,6 @@ function updateDashboard(driversList) {
         flag_catch = (diffMs < 0) ? 1 : (diffMs > 0 ? 2 : 0); 
       }
 
-      // --- LOGICA INTELLIGENTE BOX CENTRALE (Gara = Real Gap | Qualifica = Best Gap) ---
       if (isRaceSession) {
           let theirDiffStr = String(myTarget.gap || myTarget.difference || myTarget.df || '0');
           let theirDiffMs = parseGapToMs(theirDiffStr);
@@ -780,7 +765,6 @@ function updateDashboard(driversList) {
     }
 
 
-    // === GESTIONE AHEAD ===
     if (myIndex > 0) {
       const driverAhead = driversList[myIndex - 1]; 
       stringAhead = formatRivalInfo(driverAhead, myDriver);
@@ -817,7 +801,6 @@ function updateDashboard(driversList) {
     }
     document.getElementById('driverAhead').innerHTML = stringAhead;
 
-    // === GESTIONE BEHIND ===
     if (myIndex < driversList.length - 1) {
       const driverBehind = driversList[myIndex + 1]; 
       stringBehind = formatRivalInfo(driverBehind, myDriver);
@@ -895,7 +878,6 @@ function updateDashboard(driversList) {
   }
 }
 
-// === AVVIO AUTOMATICO AL REFRESH DELLA PAGINA ===
 if (currentRaceId) {
   if (activeEngine === 'mylaps') {
     document.getElementById('raceLinkInput').value = `https://speedhive.mylaps.com/livetiming/EVENT/sessions/${currentRaceId}`; 
@@ -913,15 +895,13 @@ if (currentRaceId) {
 }
 
 // ==========================================
-// CONNESSIONE MQTT SICURA (WEBSOCKETS WSS)
+// CONNESSIONE MQTT (EMQX PUBLIC CLOUD)
 // ==========================================
 
-// Generiamo un Client ID Javascript assolutamente univoco
 const randomString = Math.random().toString(36).substring(2, 10);
 const mqttClientId = "PitWall_Web_" + randomString;
 
-// Porta 8884 = Secure WebSockets (Obbligatoria su HTTPS / GitHub Pages)
-const mqttClient = new Paho.MQTT.Client("broker.hivemq.com", 8884, "/mqtt", mqttClientId);
+const mqttClient = new Paho.MQTT.Client("broker.emqx.io", 8084, "/mqtt", mqttClientId);
 
 mqttClient.onConnectionLost = function(responseObject) { 
   console.log("MQTT Disconnesso:", responseObject.errorMessage);
@@ -933,15 +913,14 @@ mqttClient.onConnectionLost = function(responseObject) {
 mqttClient.onMessageArrived = function(message) {};
 
 function connectMQTT() {
-  console.log("Tentativo di connessione MQTT su WSS (Porta 8884)...");
+  console.log("Tentativo di connessione MQTT su WSS (Porta 8084)...");
   mqttClient.connect({
     useSSL: true, 
     timeout: 10,
     onSuccess: function() { 
-      console.log("MQTT Connesso con successo!");
+      console.log("MQTT Connesso con successo a EMQX!");
       isMqttConnected = true; 
       updatePairingUI(); 
-      // Aggancia subito la board se c'è un ID salvato e non devi digitare nulla
       if (currentDeviceId !== "") {
           pairDevice();
       }
@@ -1004,10 +983,8 @@ window.sendCustomMessage = function() {
     }
 };
 
-// Avvia la connessione appena carica il file
 connectMQTT();
 
-// === FULLSCREEN E ANTI-STANDBY (WAKELOCK) COMPATIBILITÀ TOTALE ===
 let wakeLock = null; 
 const requestFullScreenAndWakeLock = async () => { 
   try { 
@@ -1015,9 +992,9 @@ const requestFullScreenAndWakeLock = async () => {
     if (!document.fullscreenElement && !document.webkitFullscreenElement) { 
       if (docEl.requestFullscreen) { 
         await docEl.requestFullscreen(); 
-      } else if (docEl.webkitRequestFullscreen) { /* Safari / iOS */
+      } else if (docEl.webkitRequestFullscreen) { 
         await docEl.webkitRequestFullscreen(); 
-      } else if (docEl.msRequestFullscreen) { /* Windows */
+      } else if (docEl.msRequestFullscreen) { 
         await docEl.msRequestFullscreen();
       }
     } 
