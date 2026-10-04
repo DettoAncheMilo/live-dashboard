@@ -209,7 +209,7 @@ function loadNewRace() {
       setButtonState('error'); alert("Invalid FICR link.");
     }
   } else if (inputUrl.includes('mgmtiming.it')) {
-    currentRaceId = inputUrl; // MGM usa l'URL intero
+    currentRaceId = inputUrl; 
     activeEngine = 'mgm';
     localStorage.setItem('pit_race_id', currentRaceId);
     localStorage.setItem('pit_active_engine', activeEngine);
@@ -856,7 +856,6 @@ function updateDashboard(driversList) {
     
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
       
-      // COSTRUZIONE DEL PAYLOAD PER TARGET HUNT
       const payloadLite = JSON.stringify({
         p: String(myPos), gap: gapText, 
         ahead: mqttAhead, ahead_html: t_total_gap, 
@@ -913,15 +912,46 @@ if (currentRaceId) {
   }
 }
 
-const mqttClient = new Paho.MQTT.Client("broker.hivemq.com", 8884, "/mqtt", "PitWall_Web_" + parseInt(Math.random() * 100000));
-mqttClient.onConnectionLost = function(responseObject) { isMqttConnected = false; updatePairingUI(); setTimeout(connectMQTT, 3000); };
+// ==========================================
+// CONNESSIONE MQTT SICURA (WEBSOCKETS WSS)
+// ==========================================
+
+// Generiamo un Client ID Javascript assolutamente univoco
+const randomString = Math.random().toString(36).substring(2, 10);
+const mqttClientId = "PitWall_Web_" + randomString;
+
+// Porta 8884 = Secure WebSockets (Obbligatoria su HTTPS / GitHub Pages)
+const mqttClient = new Paho.MQTT.Client("broker.hivemq.com", 8884, "/mqtt", mqttClientId);
+
+mqttClient.onConnectionLost = function(responseObject) { 
+  console.log("MQTT Disconnesso:", responseObject.errorMessage);
+  isMqttConnected = false; 
+  updatePairingUI(); 
+  setTimeout(connectMQTT, 3000); 
+};
+
 mqttClient.onMessageArrived = function(message) {};
 
 function connectMQTT() {
+  console.log("Tentativo di connessione MQTT su WSS (Porta 8884)...");
   mqttClient.connect({
-    useSSL: true, timeout: 10,
-    onSuccess: function() { isMqttConnected = true; updatePairingUI(); },
-    onFailure: function(err) { isMqttConnected = false; updatePairingUI(); setTimeout(connectMQTT, 5000); }
+    useSSL: true, 
+    timeout: 10,
+    onSuccess: function() { 
+      console.log("MQTT Connesso con successo!");
+      isMqttConnected = true; 
+      updatePairingUI(); 
+      // Aggancia subito la board se c'è un ID salvato e non devi digitare nulla
+      if (currentDeviceId !== "") {
+          pairDevice();
+      }
+    },
+    onFailure: function(err) { 
+      console.error("MQTT Errore Connessione:", err.errorMessage);
+      isMqttConnected = false; 
+      updatePairingUI(); 
+      setTimeout(connectMQTT, 5000); 
+    }
   });
 }
 
@@ -974,6 +1004,7 @@ window.sendCustomMessage = function() {
     }
 };
 
+// Avvia la connessione appena carica il file
 connectMQTT();
 
 // === FULLSCREEN E ANTI-STANDBY (WAKELOCK) COMPATIBILITÀ TOTALE ===
