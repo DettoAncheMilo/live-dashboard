@@ -1,95 +1,203 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="it">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Pit Dashboard</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background-color: #050505; color: #ffffff; font-family: 'Arial Black', sans-serif; padding: 10px; height: 100vh; display: flex; flex-direction: column; }
-    
-    .header { display: flex; flex-direction: column; gap: 10px; padding: 10px; background: #151515; border-radius: 8px; margin-bottom: 10px; }
-    .input-row { display: flex; width: 100%; gap: 10px; }
-    input { flex: 1; padding: 10px; border-radius: 6px; border: 1px solid #444; background: #222; color: #fff; font-size: 1rem; }
-    button { padding: 10px 15px; font-weight: bold; background: #ffcc00; color: #000; border: none; border-radius: 6px; cursor: pointer; text-transform: uppercase; }
-    
-    .select-row { display: flex; width: 100%; justify-content: space-between; align-items: center; }
-    select { font-size: 1.1rem; padding: 6px 12px; background: #252525; color: #fff; border: 1px solid #444; border-radius: 6px; font-weight: bold; max-width: 60%; }
-    
-    .session-status { text-align: center; font-size: 1.2rem; font-weight: bold; color: white; padding: 10px; background: #1a1a1a; border-radius: 8px; margin-bottom: 10px; border: 1px solid #333; }
-    
-    .grid { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1.2fr; gap: 10px; flex: 1; }
-    
-    .card { background: #111; border: 2px solid #222; border-radius: 12px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; position: relative; }
-    .card-full { grid-column: span 2; background: #111; border: 2px solid #222; border-radius: 12px; display: flex; flex-direction: column; justify-content: center; align-items: center; position: relative; padding: 25px 10px 10px 10px; }
-    
-    .label { font-size: 1.2rem; color: #888; text-transform: uppercase; position: absolute; top: 10px; }
-    .value { font-weight: 900; margin-top: 15px; }
-    
-    .pos { color: #ffcc00; font-size: 6rem; }
-    .gap { color: #ff1744; font-size: 5rem; }
-    
-    /* STILI RADAR PISTA */
-    .radar-container { display: flex; width: 100%; justify-content: space-between; align-items: center; height: 100%; }
-    .radar-item { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; }
-    .radar-title { color: #555; font-size: 1.1rem; text-transform: uppercase; margin-bottom: 5px; letter-spacing: 1px; }
-    
-    .radar-center { display: flex; align-items: center; justify-content: center; flex: 1; height: 100%; }
-    .you-box { display: flex; align-items: center; justify-content: center; gap: 15px; }
-    .you-text { color: #fff; font-size: 3.5rem; font-weight: 900; letter-spacing: 1px; }
-    .arrow { color: #ffcc00; font-size: 2.5rem; }
-    
-    .rival { color: #00e5ff; font-size: 2rem; display: flex; flex-direction: column; text-align: center; line-height: 1.1; margin-top: 0; }
-    .rival-num { color: #fff; font-size: 2rem; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>GiroVeloce Commander</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&display=swap');
+
+        :root {
+            --bg-dark: #0a0a0a;
+            --panel-bg: #151515;
+            --border: #333;
+            --text-main: #ffffff;
+            --text-muted: #888888;
+            --accent-yellow: #ffcc00;
+            --accent-green: #22c55e;
+            --accent-red: #ef4444;
+            --accent-blue: #3b82f6;
+            --accent-cyan: #06b6d4;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Montserrat', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            height: 100dvh; 
+            overflow: hidden;
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+
+        /* --- HEADER & STATUS --- */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: var(--panel-bg);
+            padding: env(safe-area-inset-top) 15px 10px 15px;
+            border-bottom: 2px solid var(--border);
+            z-index: 100;
+        }
+
+        #sessionStatus { font-weight: 700; font-size: 0.9rem; flex-grow: 1; }
+        
+        .header-actions { display: flex; align-items: center; gap: 10px; }
+        #pairStatus { font-size: 0.8rem; font-weight: 700; color: var(--text-muted); }
+        
+        .btn-icon {
+            background: none; border: none; color: var(--text-main);
+            font-size: 1.5rem; padding: 5px; cursor: pointer;
+        }
+
+        /* --- SETTINGS PANEL (COLLAPSIBILE) --- */
+        #settingsPanel {
+            background-color: var(--panel-bg);
+            border-bottom: 2px solid var(--border);
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-height: 500px;
+            overflow: hidden;
+            transition: max-height 0.3s ease-in-out, padding 0.3s ease-in-out;
+        }
+        #settingsPanel.collapsed { max-height: 0; padding-top: 0; padding-bottom: 0; border-bottom: none; }
+
+        .input-group { display: flex; gap: 8px; }
+        input[type="text"], input[type="number"], select {
+            width: 100%;
+            background-color: #000; color: var(--text-main);
+            border: 1px solid var(--border); border-radius: 6px;
+            padding: 12px; font-family: 'Montserrat', sans-serif; font-weight: 700;
+        }
+        button {
+            font-family: 'Montserrat', sans-serif; font-weight: 900;
+            border: none; border-radius: 6px; padding: 12px; cursor: pointer;
+            text-transform: uppercase; color: #000; transition: 0.2s;
+        }
+        #loadBtn { background-color: var(--accent-yellow); flex-shrink: 0; width: 100px; }
+        #stopBtn { background-color: var(--accent-red); color: #fff; display: none; }
+
+        /* --- LIVE TIMING TABLE --- */
+        #liveTimingContainer {
+            flex-grow: 1;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            padding: 0;
+            background-color: var(--bg-dark);
+        }
+
+        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.95rem; }
+        thead { position: sticky; top: 0; background-color: var(--bg-dark); z-index: 10; }
+        th { padding: 12px 8px; font-weight: 900; color: var(--text-muted); border-bottom: 2px solid var(--border); font-size: 0.8rem; }
+        td { padding: 12px 8px; border-bottom: 1px solid #222; font-weight: 700; white-space: nowrap; }
+
+        .col-pos { width: 40px; text-align: center; }
+        .col-num { width: 40px; color: var(--accent-yellow); text-align: center; }
+        .col-name { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+        .col-time { color: var(--text-main); }
+        .col-best { color: var(--accent-cyan); }
+        
+        /* HIGHLIGHTS RIGHE */
+        .row-me { background-color: rgba(255, 204, 0, 0.15); border-left: 4px solid var(--accent-yellow); }
+        .row-target { background-color: rgba(59, 130, 246, 0.15); border-left: 4px solid var(--accent-blue); }
+
+        /* --- BOTTOM CONTROLS --- */
+        #bottomControls {
+            background-color: var(--panel-bg);
+            padding: 10px 15px 15px 15px;
+            border-top: 2px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .quick-btns { display: flex; gap: 8px; }
+        .quick-btns button { flex: 1; padding: 15px 0; font-size: 0.9rem; }
+        .btn-push { background-color: var(--accent-green); }
+        .btn-behind { background-color: var(--accent-yellow); }
+        .btn-box { background-color: var(--accent-red); color: #fff; }
+
+        .custom-msg { display: flex; gap: 8px; }
+        .custom-msg input[type="text"] { flex-grow: 1; }
+        .custom-msg input[type="color"] { 
+            width: 50px; height: 43px; padding: 2px; 
+            border: 1px solid var(--border); border-radius: 6px; background: #000;
+        }
+        .custom-msg button { background-color: #f97316; color: #fff; width: 80px; }
+    </style>
 </head>
 <body>
-  <div class="header">
-    <div class="input-row">
-      <input type="text" id="raceLinkInput" placeholder="Paste link here...">
-      <button id="loadBtn" onclick="loadNewRace()">LOAD</button>
-      <button id="stopBtn" onclick="stopSession()" style="display: none; background-color: #ef4444; color: white;">STOP</button>
-    </div>
-    <div class="select-row">
-      <span style="color:#888; font-size:0.9rem;">LIVE TIMING</span>
-      <select id="driverSelect">
-        <option value="">Select Rider...</option>
-      </select>
-    </div>
-  </div>
 
-  <div id="sessionStatus" class="session-status">⏱️ Waiting for connection...</div>
+    <!-- Header -->
+    <header>
+        <div id="sessionStatus">⏱️ Waiting for connection...</div>
+        <div class="header-actions">
+            <span id="pairStatus">UNPAIRED</span>
+            <button class="btn-icon" id="toggleSettingsBtn" onclick="toggleSettings()">⚙️</button>
+        </div>
+    </header>
 
-  <div class="grid">
-    <div class="card"><span class="label">Position</span><span class="value pos" id="pos">P-</span></div>
-    <div class="card"><span class="label">Gap to leader</span><span class="value gap" id="gap">+0.0</span></div>
+    <!-- Settings Panel (A scomparsa) -->
+    <div id="settingsPanel" class="collapsed">
+        <div class="input-group">
+            <input type="text" id="deviceIdInput" placeholder="PIT-XXXX" onchange="pairDevice()">
+            <input type="text" id="myRaceNumber" placeholder="MY#">
+        </div>
+        <div class="input-group">
+            <input type="text" id="raceLinkInput" placeholder="Incolla link Gara (Ficr, Mylaps, MGM...)">
+            <button id="loadBtn" onclick="loadNewRace()">LOAD</button>
+        </div>
+        <select id="driverSelect"><option value="">Select Rider...</option></select>
+        <select id="targetSelect"><option value="">Select Target...</option></select>
+        <button id="stopBtn" onclick="stopSession()">STOP SESSION</button>
+    </div>
+
+    <!-- Main Content: Live Timing Table -->
+    <div id="liveTimingContainer">
+        <table id="liveTimingTable">
+            <thead>
+                <tr>
+                    <th class="col-pos">P</th>
+                    <th class="col-num">#</th>
+                    <th class="col-name">NAME</th>
+                    <th>LAST</th>
+                    <th>BEST</th>
+                    <th>GAP</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Popolato via JS -->
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Bottom Action Bar -->
+    <div id="bottomControls">
+        <div class="quick-btns">
+            <button class="btn-push" onclick="sendPitCommand('PUSH', '#00FF00')">PUSH</button>
+            <button class="btn-behind" onclick="sendPitCommand('RIDER BEHIND', '#FFCC00')">RIDER BEHIND</button>
+            <button class="btn-box" onclick="sendPitCommand('BOX', '#FF0000')">BOX</button>
+        </div>
+        <div class="custom-msg">
+            <input type="text" id="customTextInput" placeholder="TYPE MESSAGE...">
+            <input type="color" id="customColorPicker" value="#ff8800">
+            <button onclick="sendCustomMessage()">SEND</button>
+        </div>
+    </div>
+
+    <!-- Libreria Paho MQTT -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.js"></script>
     
-    <div class="card-full">
-      <span class="label">TRACK POSITION</span>
-      <div class="radar-container">
-        
-        <div class="radar-item">
-          <span class="radar-title">Behind</span>
-          <span class="value rival" id="driverBehind">--</span>
-        </div>
-        
-        <div class="radar-center">
-          <div class="you-box">
-            <span class="arrow">◀</span>
-            <span class="you-text" id="myDriverNum">--</span>
-            <span class="arrow">▶</span>
-          </div>
-        </div>
-
-        <div class="radar-item">
-          <span class="radar-title">Ahead</span>
-          <span class="value rival" id="driverAhead">--</span>
-        </div>
-        
-      </div>
-    </div>
-  </div>
-
-  <script src="app.js"></script>
+    <!-- Il tuo file JavaScript separato -->
+    <script src="app.js"></script>
 </body>
 </html>
