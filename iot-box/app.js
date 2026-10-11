@@ -716,7 +716,7 @@ if (currentRaceId) {
 
 const randomString = Math.random().toString(36).substring(2, 10);
 const mqttClientId = "PitWall_Web_" + randomString;
-const mqttClient = new Paho.MQTT.Client("broker.emqx.io", 8084, "/mqtt", mqttClientId);
+const mqttClient = new Paho.MQTT.Client("broker.hivemq.com", 8884, "/mqtt", mqttClientId);
 
 mqttClient.onConnectionLost = function(responseObject) { 
     isMqttConnected = false; updatePairingUI(); setTimeout(connectMQTT, 3000); 
