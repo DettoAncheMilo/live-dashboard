@@ -39,20 +39,22 @@
             padding-bottom: env(safe-area-inset-bottom);
         }
 
-        /* --- FEEDBACK VISIVO INVIO --- */
+        /* --- FEEDBACK VISIVO INVIO (ANIMAZIONE INFALLIBILE) --- */
         #flashOverlay {
             position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
+            top: 0; left: 0; width: 100vw; height: 100vh;
             pointer-events: none;
-            z-index: 9999;
+            z-index: 99999;
             box-shadow: inset 0 0 0 0 transparent;
-            transition: box-shadow 0.4s ease-out;
         }
-        
-        /* QUESTA È LA REGOLA CHE MANCAVA */
-        body.flash-border #flashOverlay {
-            box-shadow: inset 0 0 0 15px var(--flash-color); /* Spessore del bordo flash */
-            transition: box-shadow 0s; /* Appare istantaneamente, poi sfuma nei 0.4s scritti sopra */
+
+        @keyframes flashAnim {
+            0% { box-shadow: inset 0 0 0 20px var(--flash-color); }
+            100% { box-shadow: inset 0 0 0 0 transparent; }
+        }
+
+        .flash-active {
+            animation: flashAnim 0.4s ease-out;
         }
 
         /* --- HEADER & STATUS --- */
@@ -138,8 +140,19 @@
         }
 
         table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.95rem; }
-        thead { position: sticky; top: 0; background-color: var(--bg-dark); z-index: 10; }
-        th { padding: 12px 8px; font-weight: 900; color: var(--text-muted); border-bottom: 2px solid var(--border); font-size: 0.8rem; }
+        thead th { 
+            position: sticky; 
+            top: 0; 
+            background-color: var(--bg-dark); 
+            z-index: 10;
+            padding: 12px 8px; 
+            height: 40px;
+            font-weight: 900; 
+            color: var(--text-muted); 
+            border-bottom: 2px solid var(--border); 
+            font-size: 0.8rem; 
+        }
+
         td { padding: 12px 8px; border-bottom: 1px solid #222; font-weight: 700; white-space: nowrap; }
 
         .col-pos { width: 40px; text-align: center; }
@@ -148,8 +161,18 @@
         .col-time { color: var(--text-main); }
         .col-best { color: var(--accent-cyan); }
         
+        .pinned-row {
+            position: sticky;
+            z-index: 9;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.5);
+            border-bottom: 1px solid #444;
+        }
+
         .row-me { background-color: rgba(255, 204, 0, 0.15); border-left: 4px solid var(--accent-yellow); }
+        .row-me.pinned-row { background-color: #2a2200 !important; }
+
         .row-target { background-color: rgba(59, 130, 246, 0.15); border-left: 4px solid var(--accent-blue); }
+        .row-target.pinned-row { background-color: #001a33 !important; }
 
         /* --- BOTTOM CONTROLS --- */
         #bottomControls {

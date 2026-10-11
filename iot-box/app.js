@@ -141,7 +141,6 @@ document.addEventListener('input', function(event) {
     if (event.target && event.target.id === 'myRaceNumber') localStorage.setItem('pit_race_number', event.target.value.trim());
 });
 
-// Funzione super-robusta per estrarre l'ID da qualsiasi motore di timing
 function getDriverId(d) { 
     return d.id || d.user_id || d.raceno || d.no || d.number || d.num || d.fullname || d.name || d.nam || "unknown"; 
 }
@@ -260,7 +259,6 @@ document.addEventListener('change', function(event) {
     if (event.target && event.target.id === 'targetSelect') changeTarget(); 
 });
 
-// ================= MERGE SICURO (Supporto Totale per tutti i server) =================
 function mergeAndSortDrivers(mappedDrivers) {
     mappedDrivers.forEach(newD => {
         const idx = lastKnownDrivers.findIndex(oldD => {
@@ -268,15 +266,12 @@ function mergeAndSortDrivers(mappedDrivers) {
             let newIdStr = String(getDriverId(newD));
             let isFicrOrMgm = oldIdStr.includes('ficr_') || oldIdStr.includes('mgm_');
             
-            // Check primario su ID selettivo (Time2Race, Mylaps)
             if (!isFicrOrMgm && oldIdStr !== "unknown" && oldIdStr === newIdStr) return true;
             
-            // Fallback robusto sul numero di gara (tutte le varianti)
             let oldNum = String(oldD.raceno || oldD.no || oldD.number || oldD.num || '').trim();
             let newNum = String(newD.raceno || newD.no || newD.number || newD.num || '').trim();
             if (oldNum !== "" && newNum !== "" && oldNum === newNum) return true;
             
-            // Fallback d'emergenza sul nome
             let oldName = String(oldD.fullname || oldD.name || oldD.nam || oldD.nickname || '').trim().toLowerCase();
             let newName = String(newD.fullname || newD.name || newD.nam || newD.nickname || '').trim().toLowerCase();
             if (oldName !== "" && newName !== "" && oldName === newName) return true;
@@ -297,7 +292,6 @@ function mergeAndSortDrivers(mappedDrivers) {
     updateDashboard(lastKnownDrivers);
 }
 
-// ================= WEBSOCKET ENGINES =================
 async function connectFicr(eventName) {
     if (!currentRaceId || activeEngine !== 'ficr') return;
     if (window.ficrTimeout) clearTimeout(window.ficrTimeout);
@@ -470,7 +464,6 @@ async function connectMgm(originalUrl) {
     } catch (error) { window.setButtonState('error'); }
 }
 
-// ================= POPOLAMENTO SELECT =================
 function populateTargetDropdown(drivers) {
     const select = document.getElementById('targetSelect');
     if (!select) return;
@@ -501,9 +494,7 @@ function populateDriverDropdown(drivers) {
     });
 }
 
-// ================= AGGIORNAMENTO UI E INVIO DATI ESP32 =================
 function updateDashboard(driversList) {
-    // 1. LOGICA DI AUTO-AGGANCIO 
     const numInput = document.getElementById('myRaceNumber');
     
     if (numInput && !selectedDriverId && driversList.length > 0) {
@@ -533,7 +524,6 @@ function updateDashboard(driversList) {
 
     if (!selectedDriverId) return;
 
-    // 2. RENDERING TABELLA LIVE TIMING UI (ESTRAZIONE DEI PINNED)
     const tbody = document.querySelector('#liveTimingTable tbody');
     tbody.innerHTML = ''; 
 
@@ -552,7 +542,7 @@ function updateDashboard(driversList) {
         else otherRows.push(rowData);
     });
 
-    let topOffsetCounter = 40; // Altezza del thead fisso in CSS
+    let topOffsetCounter = 40; 
 
     const appendRow = (obj, isPinned) => {
         const d = obj.data;
@@ -594,7 +584,6 @@ function updateDashboard(driversList) {
     if (targetRowObj) appendRow(targetRowObj, true);
     otherRows.forEach(obj => appendRow(obj, false));
 
-    // 3. LOGICA MQTT
     const myIndex = driversList.findIndex(d => String(getDriverId(d)) === String(selectedDriverId));
     if (myIndex === -1) return;
     
@@ -709,7 +698,6 @@ function updateDashboard(driversList) {
     }
 }
 
-// ================= AUTOLOAD ALL'AVVIO =================
 if (currentRaceId) {
     if (activeEngine === 'mylaps') {
         document.getElementById('raceLinkInput').value = `https://speedhive.mylaps.com/livetiming/EVENT/sessions/${currentRaceId}`; 
@@ -726,7 +714,6 @@ if (currentRaceId) {
     }
 }
 
-// ================= MQTT EMQX & EFFETTO PULSANTE =================
 const randomString = Math.random().toString(36).substring(2, 10);
 const mqttClientId = "PitWall_Web_" + randomString;
 const mqttClient = new Paho.MQTT.Client("broker.emqx.io", 8084, "/mqtt", mqttClientId);
@@ -755,19 +742,26 @@ window.sendConfigToLilyGO = function() {
 }
 
 function triggerScreenFlash(colorCode) {
-    document.documentElement.style.setProperty('--flash-color', colorCode);
-    document.body.classList.add('flash-border');
-    setTimeout(() => { document.body.classList.remove('flash-border'); }, 300);
+    const overlay = document.getElementById('flashOverlay');
+    if (!overlay) return;
+    overlay.style.setProperty('--flash-color', colorCode);
+    overlay.classList.remove('flash-active');
+    void overlay.offsetWidth; 
+    overlay.classList.add('flash-active');
 }
 
 window.sendPitCommand = function(commandText, colorCode) {
-    if (!isMqttConnected || currentDeviceId === "") return;
+    if (!isMqttConnected || currentDeviceId === "") {
+        alert("Board non connessa!"); 
+        return;
+    }
+
     const payload = JSON.stringify({ cmd: commandText, color: colorCode });
     const message = new Paho.MQTT.Message(payload);
     message.destinationName = "pitboard/" + currentDeviceId + "/command"; message.retained = false; 
     try {
         mqttClient.send(message);
-        triggerScreenFlash(colorCode);
+        triggerScreenFlash(colorCode); 
     } catch(e) {}
 };
 
@@ -778,14 +772,18 @@ window.sendCustomMessage = function() {
     let chosenColor = colorPicker.value.toUpperCase(); 
 
     if (customText === "") return; 
-    if (!isMqttConnected || currentDeviceId === "") { alert("Board not connected!"); return; }
+
+    if (!isMqttConnected || currentDeviceId === "") {
+        alert("Board non connessa!"); 
+        return; 
+    }
 
     const payload = JSON.stringify({ cmd: customText, color: chosenColor });
     const message = new Paho.MQTT.Message(payload);
     message.destinationName = "pitboard/" + currentDeviceId + "/command"; message.retained = false; 
     try {
         mqttClient.send(message);
-        triggerScreenFlash(chosenColor);
+        triggerScreenFlash(chosenColor); 
         inputField.value = "";
     } catch(e) {}
 };
