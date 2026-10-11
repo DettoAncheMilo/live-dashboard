@@ -45,8 +45,14 @@
             top: 0; left: 0; right: 0; bottom: 0;
             pointer-events: none;
             z-index: 9999;
-            box-shadow: none;
+            box-shadow: inset 0 0 0 0 transparent;
             transition: box-shadow 0.4s ease-out;
+        }
+        
+        /* QUESTA È LA REGOLA CHE MANCAVA */
+        body.flash-border #flashOverlay {
+            box-shadow: inset 0 0 0 15px var(--flash-color); /* Spessore del bordo flash */
+            transition: box-shadow 0s; /* Appare istantaneamente, poi sfuma nei 0.4s scritti sopra */
         }
 
         /* --- HEADER & STATUS --- */
