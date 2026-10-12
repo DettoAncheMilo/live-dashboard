@@ -10,15 +10,35 @@ let myDriverLaps = "-";
 
 let currentDeviceId = ""; 
 let isMqttConnected = false;
+let isHubConnected = false;
+const hubStatusAtByBroker = [0, 0];
 let isRaceSession = false;
 
-if ('wakeLock' in navigator) {
-    navigator.wakeLock.request('screen').catch(console.error);
-}
+// Mantiene acceso ai controlli del browser e all'orientamento scelto dall'utente.
+// Il wake lock viene richiesto al primo tocco e rinnovato quando si torna alla pagina.
+let wakeLock = null;
+const requestScreenWakeLock = async () => {
+    if (!('wakeLock' in navigator) || document.visibilityState !== 'visible' || wakeLock) return;
+    try {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } catch (err) { wakeLock = null; }
+};
+
+document.addEventListener('pointerdown', requestScreenWakeLock, { once: true });
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') requestScreenWakeLock();
+});
 
 window.toggleSettings = function() {
     const panel = document.getElementById('settingsPanel');
     panel.classList.toggle('collapsed');
+    const button = document.getElementById('toggleSettingsBtn');
+    if (button) {
+        const expanded = !panel.classList.contains('collapsed');
+        button.setAttribute('aria-expanded', String(expanded));
+        button.setAttribute('aria-label', expanded ? 'Chiudi impostazioni' : 'Apri impostazioni');
+    }
 }
 
 function isLappedGap(gapStr) {
@@ -41,10 +61,10 @@ function updatePairingUI() {
     const statusEl = document.getElementById("pairStatus");
     if (!statusEl) return;
     if (currentDeviceId === "") {
-        statusEl.innerText = "UNPAIRED"; statusEl.style.color = "#888"; 
+        statusEl.innerText = "NO DISPLAY"; statusEl.style.color = "#888";
     } else {
-        if (isMqttConnected) { statusEl.innerText = "RADIO 🟢"; statusEl.style.color = "#22c55e"; } 
-        else { statusEl.innerText = "RADIO 🔴"; statusEl.style.color = "#ef4444"; }
+        if (isHubConnected) { statusEl.innerText = "DISPLAY 🟢"; statusEl.style.color = "#22c55e"; }
+        else { statusEl.innerText = "DISPLAY 🔴"; statusEl.style.color = "#ef4444"; }
     }
 }
 
@@ -66,17 +86,29 @@ window.pairDevice = function() {
     const input = inputEl.value.trim().toUpperCase();
     
     if (input === "") {
-        currentDeviceId = ""; localStorage.removeItem("pitboard_id"); updatePairingUI();
+        const previousDeviceId = localStorage.getItem("pitboard_id") || currentDeviceId;
         if (typeof mqttClient !== 'undefined' && isMqttConnected) {
             const resetLite = JSON.stringify({ p: "-", gap: "--", ahead: "--", ahead_html: "-", gap_a: "--", gap_a_bl: "--", time_a_ll: "-", time_a_bl: "-", behind: "--", behind_html: "-", gap_b: "--", gap_b_bl: "--", time_b_ll: "-", time_b_bl: "-", num: "--", time: "--:--", laps: "-", ca: 0, cb: 0, cab: 0, cbb: 2 });
             const msgResetLite = new Paho.MQTT.Message(resetLite);
-            msgResetLite.destinationName = "pitboard/" + localStorage.getItem("pitboard_id_old") + "/live"; 
-            try { mqttClient.send(msgResetLite); } catch(e) {}
+            if (previousDeviceId) {
+                msgResetLite.destinationName = "pitboard/" + previousDeviceId + "/live";
+                try { mqttClient.send(msgResetLite); } catch(e) {}
+            }
         }
+        currentDeviceId = "";
+        isHubConnected = false;
+        hubStatusAtByBroker.fill(0);
+        localStorage.removeItem("pitboard_id");
+        updatePairingUI();
         return;
     }
 
+    const pairingChanged = String(currentDeviceId).toUpperCase() !== input;
     currentDeviceId = input;
+    if (pairingChanged) {
+        isHubConnected = false;
+        hubStatusAtByBroker.fill(0);
+    }
     localStorage.setItem("pitboard_id", currentDeviceId);
     updatePairingUI();
 
@@ -86,7 +118,6 @@ window.pairDevice = function() {
         msgPair.destinationName = "pitboard/" + currentDeviceId + "/live";
         try { mqttClient.send(msgPair); } catch(e) {}
     }
-    if (typeof sendConfigToLilyGO === "function") sendConfigToLilyGO();
     if (lastKnownDrivers.length > 0) updateDashboard(lastKnownDrivers);
 };
 
@@ -114,11 +145,13 @@ document.addEventListener('input', function(event) {
     if (event.target && event.target.id === 'myRaceNumber') localStorage.setItem('pit_race_number', event.target.value.trim());
 });
 
-function getDriverId(d) { return d.id || d.user_id || d.raceno || d.fullname || d.no || d.nam; }
+function getDriverId(d) { 
+    return d.id || d.user_id || d.raceno || d.no || d.number || d.num || d.fullname || d.name || d.nam || "unknown"; 
+}
 
 function formatLapTime(timeStr) {
-    if (!timeStr || timeStr === "00:00:00.000000") return '--:--.--';
-    let formatted = timeStr;
+    if (timeStr === null || timeStr === undefined || timeStr === "" || String(timeStr) === "00:00:00.000000") return '--:--.--';
+    let formatted = String(timeStr);
     if (formatted.startsWith("00:")) formatted = formatted.substring(3);
     if (formatted.startsWith("00:")) formatted = formatted.substring(3);
     if (formatted.includes('.')) formatted = formatted.substring(0, formatted.indexOf('.') + 4);
@@ -139,7 +172,7 @@ function parseTimeToMs(str) {
 function updateBanner() {
     const statusBox = document.getElementById('sessionStatus');
     if (!statusBox) return;
-    statusBox.innerHTML = `⏱️ <span style="color: var(--accent-green);">${sessionTimeLeft}</span> | 🔄 <span style="color: var(--accent-blue);">${myDriverLaps}</span>`;
+    statusBox.textContent = `⏱️ ${sessionTimeLeft} | 🔄 ${myDriverLaps}`;
 }
 
 window.loadNewRace = function() {
@@ -172,7 +205,7 @@ window.loadNewRace = function() {
         currentRaceId = inputUrl; activeEngine = 'mgm';
         localStorage.setItem('pit_race_id', currentRaceId); localStorage.setItem('pit_active_engine', activeEngine);
         resetDashboard(); connectMgm(currentRaceId);
-    } else { window.setButtonState('error'); alert("Link non valido!"); }
+    } else { window.setButtonState('error'); alert("Invalid Link!"); }
 }
 
 window.stopSession = function() {
@@ -199,8 +232,8 @@ window.stopSession = function() {
 function resetDashboard() {
     sessionTimeLeft = "--:--"; myDriverLaps = "-"; isRaceSession = false; 
     document.getElementById('sessionStatus').innerHTML = '⏱️ Waiting for connection...';
-    document.getElementById('driverSelect').innerHTML = '<option value="">Select Rider...</option>';
-    document.getElementById('targetSelect').innerHTML = '<option value="">Select Target...</option>';
+    document.getElementById('driverSelect').innerHTML = '<option value="">Seleziona pilota</option>';
+    document.getElementById('targetSelect').innerHTML = '<option value="">Nessun target</option>';
     
     lastKnownDrivers = []; selectedDriverId = null; selectedTargetId = null;
     localStorage.removeItem('pit_driver_id'); localStorage.removeItem('pit_target_id');
@@ -214,7 +247,6 @@ function changeDriver() {
     if (!selectElement.value) return;
     selectedDriverId = selectElement.value; localStorage.setItem('pit_driver_id', selectedDriverId);
     if (lastKnownDrivers.length > 0) updateDashboard(lastKnownDrivers);
-    if (typeof sendConfigToLilyGO === "function") sendConfigToLilyGO();
 }
 
 function changeTarget() {
@@ -230,7 +262,43 @@ document.addEventListener('change', function(event) {
     if (event.target && event.target.id === 'targetSelect') changeTarget(); 
 });
 
-// ================= WEBSOCKET ENGINES =================
+function mergeAndSortDrivers(mappedDrivers) {
+    const now = Date.now();
+    mappedDrivers.forEach(newD => {
+        const idx = lastKnownDrivers.findIndex(oldD => {
+            let oldIdStr = String(getDriverId(oldD)); 
+            let newIdStr = String(getDriverId(newD));
+            let isFicrOrMgm = oldIdStr.includes('ficr_') || oldIdStr.includes('mgm_');
+            
+            if (!isFicrOrMgm && oldIdStr !== "unknown" && oldIdStr === newIdStr) return true;
+            
+            let oldNum = String(oldD.raceno || oldD.no || oldD.number || oldD.num || '').trim();
+            let newNum = String(newD.raceno || newD.no || newD.number || newD.num || '').trim();
+            if (oldNum !== "" && newNum !== "" && oldNum === newNum) return true;
+            
+            let oldName = String(oldD.fullname || oldD.name || oldD.nam || oldD.nickname || '').trim().toLowerCase();
+            let newName = String(newD.fullname || newD.name || newD.nam || newD.nickname || '').trim().toLowerCase();
+            if (oldName !== "" && newName !== "" && oldName === newName) return true;
+            
+            return false;
+        });
+
+        if (idx !== -1) {
+            lastKnownDrivers[idx] = { ...lastKnownDrivers[idx], ...newD, _lastSeenAt: now };
+        } else {
+            lastKnownDrivers.push({ ...newD, _lastSeenAt: now });
+        }
+    });
+
+    // Rimuove righe non più presenti nel feed dopo una finestra per gli aggiornamenti intermittenti.
+    lastKnownDrivers = lastKnownDrivers.filter(d => now - (d._lastSeenAt || now) <= 15000);
+    
+    lastKnownDrivers.sort((a, b) => parseInt(a.position || a.pos || 9999) - parseInt(b.position || b.pos || 9999));
+    populateDriverDropdown(lastKnownDrivers); 
+    populateTargetDropdown(lastKnownDrivers); 
+    updateDashboard(lastKnownDrivers);
+}
+
 async function connectFicr(eventName) {
     if (!currentRaceId || activeEngine !== 'ficr') return;
     if (window.ficrTimeout) clearTimeout(window.ficrTimeout);
@@ -267,16 +335,11 @@ async function pollFicr(eventName, sessionId) {
                 for (let i = 0; i < driversArray.length; i++) {
                     const d = driversArray[i];
                     if (d.m && d.m !== "00:00.000") {
-                        mappedDrivers.push({ id: d.a || `ficr_${i}`, raceno: d.b || d.a, fullname: d.c || "Rider", position: d.r, lasttime: d.h, besttime: d.m, difference: (d.s && d.s !== "--") ? d.s : "", laps: d.j });
+                        mappedDrivers.push({ id: `ficr_${i}`, raceno: d.b || d.a, fullname: d.c || "Rider", position: d.r, lasttime: d.h, besttime: d.m, difference: (d.s && d.s !== "--") ? d.s : "", laps: d.j });
                     }
                 }
             }
-            mappedDrivers.forEach(newD => {
-                const idx = lastKnownDrivers.findIndex(oldD => String(oldD.id) === String(newD.id));
-                if (idx !== -1) lastKnownDrivers[idx] = { ...lastKnownDrivers[idx], ...newD }; else lastKnownDrivers.push(newD);
-            });
-            lastKnownDrivers.sort((a, b) => parseInt(a.position || 9999) - parseInt(b.position || 9999));
-            populateDriverDropdown(lastKnownDrivers); populateTargetDropdown(lastKnownDrivers); updateDashboard(lastKnownDrivers);
+            mergeAndSortDrivers(mappedDrivers);
         }
     } catch (error) {}
     window.ficrTimeout = setTimeout(() => pollFicr(eventName, sessionId), 3000);
@@ -301,12 +364,7 @@ function connectTime2Race() {
             }
             let incomingDrivers = payload.drivers || (payload.data ? payload.data.drivers : null);
             if (incomingDrivers && incomingDrivers.length > 0) {
-                incomingDrivers.forEach(newD => {
-                    const idx = lastKnownDrivers.findIndex(oldD => String(getDriverId(oldD)) === String(getDriverId(newD)));
-                    if (idx !== -1) lastKnownDrivers[idx] = { ...lastKnownDrivers[idx], ...newD }; else lastKnownDrivers.push(newD);
-                });
-                lastKnownDrivers.sort((a, b) => parseInt(a.position || a.pos || 9999) - parseInt(b.position || b.pos || 9999));
-                populateDriverDropdown(lastKnownDrivers); populateTargetDropdown(lastKnownDrivers); updateDashboard(lastKnownDrivers);
+                mergeAndSortDrivers(incomingDrivers);
             }
         } catch (err) {}
     };
@@ -349,12 +407,7 @@ async function connectMylaps(sessionId) {
                                     let lapsCount = d.l || d.lc || d.ls || d.lap || d.laps || d.Laps || d.Lap || d.lapCount || d.c || '-';
                                     return { id: d.id, raceno: d.no, fullname: d.nam, position: d.pos, lasttime: d.lsTm, besttime: d.btTm, difference: d.df, laps: lapsCount };
                                 });
-                                mappedDrivers.forEach(newD => {
-                                    const idx = lastKnownDrivers.findIndex(oldD => String(oldD.id) === String(newD.id));
-                                    if (idx !== -1) lastKnownDrivers[idx] = { ...lastKnownDrivers[idx], ...newD }; else lastKnownDrivers.push(newD);
-                                });
-                                lastKnownDrivers.sort((a, b) => parseInt(a.position || 9999) - parseInt(b.position || 9999));
-                                populateDriverDropdown(lastKnownDrivers); populateTargetDropdown(lastKnownDrivers); updateDashboard(lastKnownDrivers);
+                                mergeAndSortDrivers(mappedDrivers);
                             }
                         }
                     } catch(e) {}
@@ -406,12 +459,7 @@ async function connectMgm(originalUrl) {
                                         mappedDrivers.push({ id: `mgm_${tdMatches[1]}_${idx}`, raceno: tdMatches[1], fullname: tdMatches[2], position: d.PosizioneArrivo || tdMatches[0], lasttime: tdMatches[4], besttime: tdMatches[5], difference: gap, laps: tdMatches[3] });
                                     }
                                 });
-                                mappedDrivers.forEach(newD => {
-                                    const idx = lastKnownDrivers.findIndex(oldD => String(oldD.raceno) === String(newD.raceno));
-                                    if (idx !== -1) lastKnownDrivers[idx] = { ...lastKnownDrivers[idx], ...newD }; else lastKnownDrivers.push(newD);
-                                });
-                                lastKnownDrivers.sort((a, b) => parseInt(a.position || 9999) - parseInt(b.position || 9999));
-                                populateDriverDropdown(lastKnownDrivers); populateTargetDropdown(lastKnownDrivers); updateDashboard(lastKnownDrivers);
+                                mergeAndSortDrivers(mappedDrivers);
                             }
                         }
                     });
@@ -423,15 +471,15 @@ async function connectMgm(originalUrl) {
     } catch (error) { window.setButtonState('error'); }
 }
 
-// ================= POPOLAMENTO SELECT =================
 function populateTargetDropdown(drivers) {
     const select = document.getElementById('targetSelect');
     if (!select) return;
     const currentVal = select.value;
-    select.innerHTML = '<option value="">Select Target...</option>';
+    select.innerHTML = '<option value="">Nessun target</option>';
     drivers.forEach(d => {
         const opt = document.createElement('option'); opt.value = getDriverId(d); 
-        const num = d.raceno || d.no || ''; const name = d.fullname || d.nickname || d.nam || `Rider ${getDriverId(d)}`;
+        const num = d.raceno || d.no || d.number || d.num || ''; 
+        const name = d.fullname || d.name || d.nam || d.nickname || `Rider ${getDriverId(d)}`;
         opt.textContent = num ? `#${num} ${name}` : name;
         if (String(opt.value) === String(selectedTargetId) || String(opt.value) === String(currentVal)) opt.selected = true;
         select.appendChild(opt);
@@ -442,20 +490,20 @@ function populateDriverDropdown(drivers) {
     const select = document.getElementById('driverSelect');
     if (!select) return;
     const currentVal = select.value;
-    select.innerHTML = '<option value="">Select Rider...</option>';
+    select.innerHTML = '<option value="">Seleziona pilota</option>';
     drivers.forEach(d => {
         const opt = document.createElement('option'); opt.value = getDriverId(d); 
-        const num = d.raceno || d.no || ''; const name = d.fullname || d.nickname || d.nam || `Rider ${getDriverId(d)}`;
+        const num = d.raceno || d.no || d.number || d.num || ''; 
+        const name = d.fullname || d.name || d.nam || d.nickname || `Rider ${getDriverId(d)}`;
         opt.textContent = num ? `#${num} ${name}` : name;
         if (String(opt.value) === String(selectedDriverId) || String(opt.value) === String(currentVal)) opt.selected = true;
         select.appendChild(opt);
     });
 }
 
-// ================= AGGIORNAMENTO UI E INVIO DATI ESP32 =================
 function updateDashboard(driversList) {
-    // 1. LOGICA DI AUTO-AGGANCIO 
     const numInput = document.getElementById('myRaceNumber');
+    const emptyState = document.getElementById('emptyState');
     
     if (numInput && !selectedDriverId && driversList.length > 0) {
         let targetNumRaw = String(numInput.value).trim();
@@ -464,7 +512,7 @@ function updateDashboard(driversList) {
             let targetNumMatch = isNaN(targetNumRaw) ? targetNumRaw.toUpperCase() : parseInt(targetNumRaw, 10).toString();
             
             const autoDriver = driversList.find(d => {
-                let dNumRaw = String(d.raceno || d.no || "").trim();
+                let dNumRaw = String(d.raceno || d.no || d.number || d.num || "").trim();
                 if (dNumRaw === "") return false;
                 let dNumMatch = isNaN(dNumRaw) ? dNumRaw.toUpperCase() : parseInt(dNumRaw, 10).toString();
                 return dNumMatch === targetNumMatch;
@@ -477,46 +525,101 @@ function updateDashboard(driversList) {
                 const selectEl = document.getElementById('driverSelect'); 
                 if (selectEl) selectEl.value = selectedDriverId;
                 
-                if (typeof sendConfigToLilyGO === "function") sendConfigToLilyGO();
             }
         }
     }
 
-    if (!selectedDriverId) return;
-
-    // 2. RENDERING TABELLA LIVE TIMING UI 
     const tbody = document.querySelector('#liveTimingTable tbody');
+    if (!driversList.length) {
+        if (tbody) tbody.innerHTML = '';
+        if (emptyState) {
+            emptyState.hidden = false;
+            emptyState.textContent = 'Carica una gara dalle impostazioni. La classifica apparirà qui; poi seleziona il tuo pilota.';
+        }
+        return;
+    }
+    if (emptyState) emptyState.hidden = true;
     tbody.innerHTML = ''; 
-    
+
+    let meRowObj = null;
+    let targetRowObj = null;
+    let otherRows = [];
+
     driversList.forEach((d, index) => {
+        const dId = getDriverId(d);
+        let isMe = String(dId) === String(selectedDriverId);
+        let isTarget = String(dId) === String(selectedTargetId);
+        let rowData = { data: d, index: index + 1 };
+
+        if (isMe) meRowObj = rowData;
+        else if (isTarget) targetRowObj = rowData;
+        else otherRows.push(rowData);
+    });
+
+    let topOffsetCounter = 40; 
+
+    const appendRow = (obj, isPinned) => {
+        const d = obj.data;
         const dId = getDriverId(d);
         const tr = document.createElement('tr');
         
-        if (String(dId) === String(selectedDriverId)) tr.classList.add('row-me');
-        else if (String(dId) === String(selectedTargetId)) tr.classList.add('row-target');
+        let isMe = String(dId) === String(selectedDriverId);
+        let isTarget = String(dId) === String(selectedTargetId);
         
-        const pos = d.position || d.pos || (index + 1);
-        const num = d.raceno || d.no || '';
-        const name = (d.fullname || d.nickname || d.nam || 'Rider').substring(0, 15);
+        if (isMe) tr.classList.add('row-me');
+        if (isTarget) tr.classList.add('row-target');
+        
+        if (isPinned) {
+            tr.classList.add('pinned-row');
+            tr.style.top = topOffsetCounter + 'px';
+            topOffsetCounter += 45; 
+        }
+        
+        const pos = d.position || d.pos || obj.index;
+        const num = d.raceno || d.no || d.number || d.num || '';
+        const name = (d.fullname || d.name || d.nickname || d.nam || 'Rider').substring(0, 15);
         const last = formatLapTime(d.lasttime || d.lsTm);
         const best = formatLapTime(d.besttime || d.btTm);
         let gap = d.difference || d.df || d.gap || '';
         if(gap === '-' || gap === '') gap = '--';
         
-        tr.innerHTML = `
-            <td class="col-pos">${pos}</td>
-            <td class="col-num">${num}</td>
-            <td class="col-name">${name}</td>
-            <td class="col-time">${last}</td>
-            <td class="col-best">${best}</td>
-            <td class="col-time">${gap}</td>
-        `;
+        const columns = [
+            ['col-pos', pos], ['col-num', num], ['col-name', name],
+            ['col-last', last], ['col-best', best], ['col-gap', gap]
+        ];
+        columns.forEach(([className, value]) => {
+            const td = document.createElement('td');
+            td.className = className;
+            td.textContent = String(value ?? '');
+            tr.appendChild(td);
+        });
         tbody.appendChild(tr);
-    });
+    };
 
-    // 3. LOGICA MQTT
+    if (meRowObj) appendRow(meRowObj, true);
+    if (targetRowObj) appendRow(targetRowObj, true);
+    otherRows.forEach(obj => appendRow(obj, false));
+
+    // La classifica completa resta utile anche prima di impostare il proprio pilota.
+    if (!selectedDriverId) return;
+
     const myIndex = driversList.findIndex(d => String(getDriverId(d)) === String(selectedDriverId));
-    if (myIndex === -1) return;
+    if (myIndex === -1) {
+        myDriverLaps = '-';
+        updateBanner();
+        if (isMqttConnected && currentDeviceId !== '') {
+            const emptyTelemetry = {
+                p: '-', gap: '--', ahead: '--', ahead_html: '--', gap_a: '--', gap_a_bl: '--',
+                time_a_ll: '--:--', time_a_bl: '--:--', behind: '--', behind_html: '--',
+                gap_b: '--', gap_b_bl: '--', time_b_ll: 'P-', time_b_bl: '#--',
+                num: '--', time: sessionTimeLeft, laps: '-', ca: 0, cb: 0, cab: 0, cbb: 1
+            };
+            const resetMessage = new Paho.MQTT.Message(JSON.stringify(emptyTelemetry));
+            resetMessage.destinationName = `pitboard/${currentDeviceId}/live`;
+            try { mqttClient.send(resetMessage); } catch (error) {}
+        }
+        return;
+    }
     
     const myDriver = driversList[myIndex];
     const myTarget = selectedTargetId ? driversList.find(d => String(getDriverId(d)) === String(selectedTargetId)) : null;
@@ -534,10 +637,11 @@ function updateDashboard(driversList) {
         gapText = diffMs === 0 ? "-0.000" : `+${(diffMs / 1000).toFixed(3)}`; 
     }
 
-    const myNumText = String(myDriver.raceno || myDriver.no || '').trim() ? `#${String(myDriver.raceno || myDriver.no).trim()}` : 'ME';
+    const rawNumStr = String(myDriver.raceno || myDriver.no || myDriver.number || myDriver.num || '').trim();
+    const myNumText = rawNumStr !== "" ? `#${rawNumStr}` : 'ME';
     let myLastMs = parseTimeToMs(formatLapTime(myDriver.lasttime || myDriver.lsTm));
-    let stringAhead = '--'; let mqttAhead = '--'; let mqttAheadGap = '--'; let mqttAheadGapBL = '--'; let c_a = 0;
-    let stringBehind = '--'; let mqttBehind = '--'; let mqttBehindGap = '--'; let mqttBehindGapBL = '--'; let c_b = 0;
+    let mqttAhead = '--'; let mqttAheadGap = '--'; let mqttAheadGapBL = '--'; let c_a = 0;
+    let mqttBehind = '--'; let mqttBehindGap = '--'; let mqttBehindGapBL = '--'; let c_b = 0;
     let myDiffStr = String(myDriver.gap || myDriver.difference || myDriver.df || '0');
     let myDiffMs = parseGapToMs(myDiffStr);
     let t_pos = "--", t_num = "--", t_last = "--", t_best = "--", t_pace_delta = "--", t_total_gap = "--";
@@ -545,7 +649,8 @@ function updateDashboard(driversList) {
 
     if(myTarget) {
         t_pos = "P" + (myTarget.position || myTarget.pos || "-");
-        t_num = "#" + String(myTarget.raceno || myTarget.no || "").trim();
+        const tgtNumStr = String(myTarget.raceno || myTarget.no || myTarget.number || myTarget.num || "").trim();
+        t_num = tgtNumStr !== "" ? `#${tgtNumStr}` : "--";
         t_last = formatLapTime(myTarget.lasttime || myTarget.lsTm);
         t_best = formatLapTime(myTarget.besttime || myTarget.btTm);
         let targetLastMs = parseTimeToMs(t_last);
@@ -573,7 +678,7 @@ function updateDashboard(driversList) {
 
     if (myIndex > 0) {
         const driverAhead = driversList[myIndex - 1]; 
-        mqttAhead = "#" + String(driverAhead.raceno || driverAhead.no || "").trim();
+        mqttAhead = "#" + String(driverAhead.raceno || driverAhead.no || driverAhead.number || driverAhead.num || "").trim();
         let theirLastMs = parseTimeToMs(formatLapTime(driverAhead.lasttime || driverAhead.lsTm));
         let theirBestMs = parseTimeToMs(formatLapTime(driverAhead.besttime || driverAhead.btTm));
         let theirDiffStr = String(driverAhead.gap || driverAhead.difference || driverAhead.df || '0');
@@ -581,10 +686,7 @@ function updateDashboard(driversList) {
         let isLapped = isLappedGap(myDiffStr) || isLappedGap(theirDiffStr);
 
         if (isLapped) { mqttAheadGap = "LAPPED"; } else { mqttAheadGap = "+" + (Math.abs(myDiffMs - theirDiffMs) / 1000).toFixed(3); }
-        if (myLastMs > 0 && theirLastMs > 0) { 
-            c_a = (myLastMs <= theirLastMs) ? 1 : 2; 
-            if (!isLapped && mqttAheadGap !== "+0.000") mqttAheadGap = (c_a === 1 ? "-" : "+") + mqttAheadGap.substring(1); 
-        }
+        if (myLastMs > 0 && theirLastMs > 0) c_a = (myLastMs <= theirLastMs) ? 1 : 2;
         if (myBestMs > 0 && theirBestMs > 0) {
             let diffMsBL = myBestMs - theirBestMs; 
             mqttAheadGapBL = (diffMsBL > 0 ? "+" : "") + (diffMsBL / 1000).toFixed(3);
@@ -593,7 +695,7 @@ function updateDashboard(driversList) {
 
     if (myIndex < driversList.length - 1) {
         const driverBehind = driversList[myIndex + 1]; 
-        mqttBehind = "#" + String(driverBehind.raceno || driverBehind.no || "").trim();
+        mqttBehind = "#" + String(driverBehind.raceno || driverBehind.no || driverBehind.number || driverBehind.num || "").trim();
         let theirLastMs = parseTimeToMs(formatLapTime(driverBehind.lasttime || driverBehind.lsTm));
         let theirBestMs = parseTimeToMs(formatLapTime(driverBehind.besttime || driverBehind.btTm));
         let theirDiffStr = String(driverBehind.gap || driverBehind.difference || driverBehind.df || '0');
@@ -601,10 +703,7 @@ function updateDashboard(driversList) {
         let isLapped = isLappedGap(myDiffStr) || isLappedGap(theirDiffStr);
 
         if (isLapped) { mqttBehindGap = "LAPPED"; } else { mqttBehindGap = "+" + (Math.abs(myDiffMs - theirDiffMs) / 1000).toFixed(3); }
-        if (myLastMs > 0 && theirLastMs > 0) { 
-            c_b = (myLastMs <= theirLastMs) ? 1 : 2; 
-            if (!isLapped && mqttBehindGap !== "+0.000") mqttBehindGap = (c_b === 1 ? "-" : "+") + mqttBehindGap.substring(1); 
-        }
+        if (myLastMs > 0 && theirLastMs > 0) c_b = (myLastMs <= theirLastMs) ? 1 : 2;
         if (myBestMs > 0 && theirBestMs > 0) {
             let diffMsBL = myBestMs - theirBestMs; 
             mqttBehindGapBL = (diffMsBL > 0 ? "+" : "") + (diffMsBL / 1000).toFixed(3);
@@ -627,7 +726,6 @@ function updateDashboard(driversList) {
     }
 }
 
-// ================= AUTOLOAD ALL'AVVIO =================
 if (currentRaceId) {
     if (activeEngine === 'mylaps') {
         document.getElementById('raceLinkInput').value = `https://speedhive.mylaps.com/livetiming/EVENT/sessions/${currentRaceId}`; 
@@ -644,43 +742,127 @@ if (currentRaceId) {
     }
 }
 
-// ================= MQTT EMQX =================
-const randomString = Math.random().toString(36).substring(2, 10);
-const mqttClientId = "PitWall_Web_" + randomString;
-const mqttClient = new Paho.MQTT.Client("broker.emqx.io", 8084, "/mqtt", mqttClientId);
+const mqttBrokerDefinitions = [
+    { name: 'HiveMQ', host: 'broker.hivemq.com', port: 8884, path: '/mqtt' },
+    { name: 'EMQX', host: 'broker.emqx.io', port: 8084, path: '/mqtt' }
+];
+const mqttClients = mqttBrokerDefinitions.map((broker, index) => {
+    const id = `PitWall_${index}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    return new Paho.MQTT.Client(broker.host, broker.port, broker.path, id);
+});
+const mqttReconnectTimers = [null, null];
+const mqttConnecting = [false, false];
 
-mqttClient.onConnectionLost = function(responseObject) { 
-    isMqttConnected = false; updatePairingUI(); setTimeout(connectMQTT, 3000); 
+// Facade compatibile con il resto dell'app: pubblica su ogni broker disponibile.
+const mqttClient = {
+    get connected() {
+        return mqttClients.some(client => client.isConnected());
+    },
+    send(message) {
+        const connectedClients = mqttClients.filter(client => client.isConnected());
+        if (connectedClients.length === 0) throw new Error('Nessun broker MQTT connesso');
+        let sent = 0;
+        connectedClients.forEach(client => {
+            try {
+                const payload = message.payloadString !== undefined ? message.payloadString : message.payloadBytes;
+                const copy = new Paho.MQTT.Message(payload);
+                copy.destinationName = message.destinationName;
+                copy.qos = Number.isInteger(message.qos) ? message.qos : 0;
+                copy.retained = Boolean(message.retained);
+                client.send(copy);
+                sent++;
+            } catch (error) {}
+        });
+        if (sent === 0) throw new Error('Pubblicazione MQTT fallita');
+    }
 };
 
-function connectMQTT() {
-    mqttClient.connect({
-        useSSL: true, timeout: 10,
-        onSuccess: function() { 
-            isMqttConnected = true; updatePairingUI(); 
-            if (currentDeviceId !== "") pairDevice();
-        },
-        onFailure: function(err) { isMqttConnected = false; updatePairingUI(); setTimeout(connectMQTT, 5000); }
+function refreshMqttConnectionState() {
+    isMqttConnected = mqttClients.some(client => client.isConnected());
+    updatePairingUI();
+}
+
+function scheduleMqttReconnect(index, delayMs) {
+    if (mqttReconnectTimers[index]) clearTimeout(mqttReconnectTimers[index]);
+    mqttReconnectTimers[index] = setTimeout(() => connectMQTT(index), delayMs);
+}
+
+function connectMQTT(index = null) {
+    const indexes = index === null ? mqttClients.map((_, i) => i) : [index];
+    indexes.forEach(i => {
+        const client = mqttClients[i];
+        if (client.isConnected() || mqttConnecting[i]) return;
+        mqttConnecting[i] = true;
+        client.connect({
+            useSSL: true,
+            timeout: 10,
+            onSuccess: function() {
+                mqttConnecting[i] = false;
+                try { client.subscribe('pitboard/+/status'); } catch (error) {}
+                refreshMqttConnectionState();
+                if (currentDeviceId !== '') pairDevice();
+            },
+            onFailure: function() {
+                mqttConnecting[i] = false;
+                refreshMqttConnectionState();
+                scheduleMqttReconnect(i, 5000);
+            }
+        });
     });
 }
 
-window.sendConfigToLilyGO = function() {
-    if (!currentRaceId || !selectedDriverId || !isMqttConnected || currentDeviceId === "") return;
-    const payload = JSON.stringify({ engine: activeEngine, raceId: currentRaceId, driverId: selectedDriverId });
-    const message = new Paho.MQTT.Message(payload);
-    message.destinationName = "pitboard/" + currentDeviceId + "/config"; message.retained = true; 
-    try { mqttClient.send(message); } catch(e) {}
+mqttClients.forEach((client, index) => {
+    client.onMessageArrived = function(message) {
+        if (!message.destinationName || !message.destinationName.endsWith('/status')) return;
+        try {
+            const status = JSON.parse(message.payloadString);
+            const statusDeviceId = String(status.deviceId || message.destinationName.split('/')[1] || '').toUpperCase();
+            if (statusDeviceId === String(currentDeviceId).toUpperCase()) {
+                hubStatusAtByBroker[index] = status.online === true ? Date.now() : 0;
+                isHubConnected = hubStatusAtByBroker.some(stamp => stamp > 0 && Date.now() - stamp < 10000);
+                updatePairingUI();
+            }
+        } catch (error) {}
+    };
+    client.onConnectionLost = function() {
+        mqttConnecting[index] = false;
+        hubStatusAtByBroker[index] = 0;
+        isHubConnected = hubStatusAtByBroker.some(stamp => stamp > 0 && Date.now() - stamp < 10000);
+        refreshMqttConnectionState();
+        scheduleMqttReconnect(index, 3000);
+    };
+});
+
+setInterval(() => {
+    const now = Date.now();
+    const stillOnline = hubStatusAtByBroker.some(stamp => stamp > 0 && now - stamp < 10000);
+    if (isHubConnected !== stillOnline) {
+        isHubConnected = stillOnline;
+        updatePairingUI();
+    }
+}, 2000);
+
+function triggerScreenFlash(colorCode) {
+    const overlay = document.getElementById('flashOverlay');
+    if (!overlay) return;
+    overlay.style.setProperty('--flash-color', colorCode);
+    overlay.classList.remove('flash-active');
+    void overlay.offsetWidth; 
+    overlay.classList.add('flash-active');
 }
 
 window.sendPitCommand = function(commandText, colorCode) {
-    if (!isMqttConnected || currentDeviceId === "") return;
+    if (!isMqttConnected || !isHubConnected || currentDeviceId === "") {
+        alert("Board non connessa!"); 
+        return;
+    }
+
     const payload = JSON.stringify({ cmd: commandText, color: colorCode });
     const message = new Paho.MQTT.Message(payload);
     message.destinationName = "pitboard/" + currentDeviceId + "/command"; message.retained = false; 
     try {
         mqttClient.send(message);
-        document.body.style.border = "4px solid " + colorCode;
-        setTimeout(() => { document.body.style.border = "none"; }, 500);
+        triggerScreenFlash(colorCode); 
     } catch(e) {}
 };
 
@@ -691,33 +873,20 @@ window.sendCustomMessage = function() {
     let chosenColor = colorPicker.value.toUpperCase(); 
 
     if (customText === "") return; 
-    if (!isMqttConnected || currentDeviceId === "") { alert("Board non connessa!"); return; }
+
+    if (!isMqttConnected || !isHubConnected || currentDeviceId === "") {
+        alert("Board non connessa!"); 
+        return; 
+    }
 
     const payload = JSON.stringify({ cmd: customText, color: chosenColor });
     const message = new Paho.MQTT.Message(payload);
     message.destinationName = "pitboard/" + currentDeviceId + "/command"; message.retained = false; 
     try {
         mqttClient.send(message);
-        document.body.style.border = "4px solid " + chosenColor;
-        setTimeout(() => { document.body.style.border = "none"; }, 500);
+        triggerScreenFlash(chosenColor); 
         inputField.value = "";
     } catch(e) {}
 };
 
 connectMQTT();
-
-// Screen Wake & Fullscreen auto-request (touch)
-let wakeLock = null; 
-const requestFullScreenAndWakeLock = async () => { 
-    try { 
-        let docEl = document.documentElement;
-        if (!document.fullscreenElement && !document.webkitFullscreenElement) { 
-            if (docEl.requestFullscreen) await docEl.requestFullscreen(); 
-            else if (docEl.webkitRequestFullscreen) await docEl.webkitRequestFullscreen(); 
-        } 
-    } catch (err) {} 
-    try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (err) {} 
-}; 
-document.body.addEventListener('click', requestFullScreenAndWakeLock); 
-document.body.addEventListener('touchstart', requestFullScreenAndWakeLock); 
-document.addEventListener('visibilitychange', async () => { if (document.visibilityState === 'visible') await requestFullScreenAndWakeLock(); });
