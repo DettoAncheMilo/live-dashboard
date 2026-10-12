@@ -37,7 +37,7 @@ window.toggleSettings = function() {
     if (button) {
         const expanded = !panel.classList.contains('collapsed');
         button.setAttribute('aria-expanded', String(expanded));
-        button.setAttribute('aria-label', expanded ? 'Chiudi impostazioni' : 'Apri impostazioni');
+        button.setAttribute('aria-label', expanded ? 'Close settings' : 'Open settings');
     }
 }
 
@@ -149,6 +149,31 @@ function getDriverId(d) {
     return d.id || d.user_id || d.raceno || d.no || d.number || d.num || d.fullname || d.name || d.nam || "unknown"; 
 }
 
+function isDriverInPit(driver) {
+    if (!driver || typeof driver !== 'object') return false;
+
+    const flagKeys = ['isInPit', 'inPit', 'in_pit', 'pitLane', 'pit_lane', 'onPitLane', 'on_pit_lane', 'pitStatus', 'pit_status', 'pit'];
+    for (const key of flagKeys) {
+        const value = driver[key];
+        if (typeof value === 'boolean') return value;
+        if (typeof value === 'number' && key !== 'pit') return value !== 0;
+        if (typeof value === 'string') {
+            const token = value.trim().toUpperCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
+            if (['TRUE', 'YES', '1', 'IN PIT', 'PIT LANE', 'IN PIT LANE'].includes(token)) return true;
+            if (['FALSE', 'NO', '0', 'ON TRACK', 'OUT'].includes(token)) return false;
+        }
+    }
+
+    const statusValues = [driver.status, driver.state, driver.pitStatus, driver.pit_status,
+        driver.lasttime, driver.lsTm, driver.lastLap, driver.last_lap];
+    return statusValues.some(value => {
+        if (typeof value !== 'string') return false;
+        const token = value.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/gi, ' ')
+            .trim().toUpperCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
+        return /^(?:IN )?PIT(?: LANE)?$/.test(token);
+    });
+}
+
 function formatLapTime(timeStr) {
     if (timeStr === null || timeStr === undefined || timeStr === "" || String(timeStr) === "00:00:00.000000") return '--:--.--';
     let formatted = String(timeStr);
@@ -172,7 +197,7 @@ function parseTimeToMs(str) {
 function updateBanner() {
     const statusBox = document.getElementById('sessionStatus');
     if (!statusBox) return;
-    statusBox.textContent = `⏱️ ${sessionTimeLeft} | 🔄 ${myDriverLaps}`;
+    statusBox.textContent = `⏱️ ${sessionTimeLeft} | 🔄 ${myDriverLaps} LAPS`;
 }
 
 window.loadNewRace = function() {
@@ -193,7 +218,7 @@ window.loadNewRace = function() {
             currentRaceId = match[1]; activeEngine = 'mylaps';
             localStorage.setItem('pit_race_id', currentRaceId); localStorage.setItem('pit_active_engine', activeEngine);
             resetDashboard(); connectMylaps(currentRaceId);
-        } else { window.setButtonState('error'); alert("Invalid Mylaps link."); }
+        } else { window.setButtonState('error'); alert("Invalid MYLAPS link."); }
     } else if (inputUrl.includes('livetiming.ficr.it')) {
         const match = inputUrl.match(/livetiming\.ficr\.it\/([^\/]+)/);
         if (match && match[1]) {
@@ -205,7 +230,7 @@ window.loadNewRace = function() {
         currentRaceId = inputUrl; activeEngine = 'mgm';
         localStorage.setItem('pit_race_id', currentRaceId); localStorage.setItem('pit_active_engine', activeEngine);
         resetDashboard(); connectMgm(currentRaceId);
-    } else { window.setButtonState('error'); alert("Invalid Link!"); }
+    } else { window.setButtonState('error'); alert("Unsupported race link. Paste a MYLAPS, FICR, MGM, or Time2Race link."); }
 }
 
 window.stopSession = function() {
@@ -231,9 +256,9 @@ window.stopSession = function() {
 
 function resetDashboard() {
     sessionTimeLeft = "--:--"; myDriverLaps = "-"; isRaceSession = false; 
-    document.getElementById('sessionStatus').innerHTML = '⏱️ Waiting for connection...';
-    document.getElementById('driverSelect').innerHTML = '<option value="">Seleziona pilota</option>';
-    document.getElementById('targetSelect').innerHTML = '<option value="">Nessun target</option>';
+    document.getElementById('sessionStatus').textContent = '⏱️ Waiting for connection...';
+    document.getElementById('driverSelect').innerHTML = '<option value="">Select rider</option>';
+    document.getElementById('targetSelect').innerHTML = '<option value="">No target</option>';
     
     lastKnownDrivers = []; selectedDriverId = null; selectedTargetId = null;
     localStorage.removeItem('pit_driver_id'); localStorage.removeItem('pit_target_id');
@@ -264,7 +289,8 @@ document.addEventListener('change', function(event) {
 
 function mergeAndSortDrivers(mappedDrivers) {
     const now = Date.now();
-    mappedDrivers.forEach(newD => {
+    mappedDrivers.forEach(sourceDriver => {
+        const newD = { ...sourceDriver, isInPit: isDriverInPit(sourceDriver) };
         const idx = lastKnownDrivers.findIndex(oldD => {
             let oldIdStr = String(getDriverId(oldD)); 
             let newIdStr = String(getDriverId(newD));
@@ -335,7 +361,7 @@ async function pollFicr(eventName, sessionId) {
                 for (let i = 0; i < driversArray.length; i++) {
                     const d = driversArray[i];
                     if (d.m && d.m !== "00:00.000") {
-                        mappedDrivers.push({ id: `ficr_${i}`, raceno: d.b || d.a, fullname: d.c || "Rider", position: d.r, lasttime: d.h, besttime: d.m, difference: (d.s && d.s !== "--") ? d.s : "", laps: d.j });
+                        mappedDrivers.push({ ...d, id: `ficr_${i}`, raceno: d.b || d.a, fullname: d.c || "Rider", position: d.r, lasttime: d.h, besttime: d.m, difference: (d.s && d.s !== "--") ? d.s : "", laps: d.j });
                     }
                 }
             }
@@ -405,7 +431,7 @@ async function connectMylaps(sessionId) {
                             if (arg.results) {
                                 const mappedDrivers = arg.results.map(d => {
                                     let lapsCount = d.l || d.lc || d.ls || d.lap || d.laps || d.Laps || d.Lap || d.lapCount || d.c || '-';
-                                    return { id: d.id, raceno: d.no, fullname: d.nam, position: d.pos, lasttime: d.lsTm, besttime: d.btTm, difference: d.df, laps: lapsCount };
+                                    return { ...d, id: d.id, raceno: d.no, fullname: d.nam, position: d.pos, lasttime: d.lsTm, besttime: d.btTm, difference: d.df, laps: lapsCount };
                                 });
                                 mergeAndSortDrivers(mappedDrivers);
                             }
@@ -456,7 +482,7 @@ async function connectMgm(originalUrl) {
                                     while ((match = tdRegex.exec(d.RigaTabella)) !== null) tdMatches.push(match[1].trim());
                                     if (tdMatches.length >= 7) {
                                         let gap = tdMatches[6].replace(/&nbsp;/gi, '').trim(); if (gap === '-' || gap === '') gap = '--';
-                                        mappedDrivers.push({ id: `mgm_${tdMatches[1]}_${idx}`, raceno: tdMatches[1], fullname: tdMatches[2], position: d.PosizioneArrivo || tdMatches[0], lasttime: tdMatches[4], besttime: tdMatches[5], difference: gap, laps: tdMatches[3] });
+                                        mappedDrivers.push({ ...d, id: `mgm_${tdMatches[1]}_${idx}`, raceno: tdMatches[1], fullname: tdMatches[2], position: d.PosizioneArrivo || tdMatches[0], lasttime: tdMatches[4], besttime: tdMatches[5], difference: gap, laps: tdMatches[3] });
                                     }
                                 });
                                 mergeAndSortDrivers(mappedDrivers);
@@ -475,12 +501,12 @@ function populateTargetDropdown(drivers) {
     const select = document.getElementById('targetSelect');
     if (!select) return;
     const currentVal = select.value;
-    select.innerHTML = '<option value="">Nessun target</option>';
+    select.innerHTML = '<option value="">No target</option>';
     drivers.forEach(d => {
         const opt = document.createElement('option'); opt.value = getDriverId(d); 
         const num = d.raceno || d.no || d.number || d.num || ''; 
         const name = d.fullname || d.name || d.nam || d.nickname || `Rider ${getDriverId(d)}`;
-        opt.textContent = num ? `#${num} ${name}` : name;
+        opt.textContent = `${num ? `#${num} ` : ''}${name}${isDriverInPit(d) ? ' · IN PIT' : ''}`;
         if (String(opt.value) === String(selectedTargetId) || String(opt.value) === String(currentVal)) opt.selected = true;
         select.appendChild(opt);
     });
@@ -490,12 +516,12 @@ function populateDriverDropdown(drivers) {
     const select = document.getElementById('driverSelect');
     if (!select) return;
     const currentVal = select.value;
-    select.innerHTML = '<option value="">Seleziona pilota</option>';
+    select.innerHTML = '<option value="">Select rider</option>';
     drivers.forEach(d => {
         const opt = document.createElement('option'); opt.value = getDriverId(d); 
         const num = d.raceno || d.no || d.number || d.num || ''; 
         const name = d.fullname || d.name || d.nam || d.nickname || `Rider ${getDriverId(d)}`;
-        opt.textContent = num ? `#${num} ${name}` : name;
+        opt.textContent = `${num ? `#${num} ` : ''}${name}${isDriverInPit(d) ? ' · IN PIT' : ''}`;
         if (String(opt.value) === String(selectedDriverId) || String(opt.value) === String(currentVal)) opt.selected = true;
         select.appendChild(opt);
     });
@@ -534,7 +560,7 @@ function updateDashboard(driversList) {
         if (tbody) tbody.innerHTML = '';
         if (emptyState) {
             emptyState.hidden = false;
-            emptyState.textContent = 'Carica una gara dalle impostazioni. La classifica apparirà qui; poi seleziona il tuo pilota.';
+            emptyState.textContent = 'Load a race in Settings. The standings will appear here; then select your rider.';
         }
         return;
     }
@@ -578,7 +604,7 @@ function updateDashboard(driversList) {
         const pos = d.position || d.pos || obj.index;
         const num = d.raceno || d.no || d.number || d.num || '';
         const name = (d.fullname || d.name || d.nickname || d.nam || 'Rider').substring(0, 15);
-        const last = formatLapTime(d.lasttime || d.lsTm);
+        const last = isDriverInPit(d) ? 'IN PIT' : formatLapTime(d.lasttime || d.lsTm);
         const best = formatLapTime(d.besttime || d.btTm);
         let gap = d.difference || d.df || d.gap || '';
         if(gap === '-' || gap === '') gap = '--';
@@ -645,9 +671,11 @@ function updateDashboard(driversList) {
     let myDiffStr = String(myDriver.gap || myDriver.difference || myDriver.df || '0');
     let myDiffMs = parseGapToMs(myDiffStr);
     let t_pos = "--", t_num = "--", t_last = "--", t_best = "--", t_pace_delta = "--", t_total_gap = "--";
-    let flag_catch = 0; 
+    let flag_catch = 0;
+    let targetInPit = 0;
 
     if(myTarget) {
+        targetInPit = isDriverInPit(myTarget) ? 1 : 0;
         t_pos = "P" + (myTarget.position || myTarget.pos || "-");
         const tgtNumStr = String(myTarget.raceno || myTarget.no || myTarget.number || myTarget.num || "").trim();
         t_num = tgtNumStr !== "" ? `#${tgtNumStr}` : "--";
@@ -713,6 +741,7 @@ function updateDashboard(driversList) {
     if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
         const payloadLite = JSON.stringify({
             p: String(myPos), gap: gapText, 
+            target_pit: targetInPit,
             ahead: mqttAhead, ahead_html: t_total_gap, 
             gap_a: mqttAheadGap, gap_a_bl: mqttAheadGapBL, time_a_ll: t_last, time_a_bl: t_best,
             behind: mqttBehind, behind_html: t_pace_delta, 
@@ -853,7 +882,7 @@ function triggerScreenFlash(colorCode) {
 
 window.sendPitCommand = function(commandText, colorCode) {
     if (!isMqttConnected || !isHubConnected || currentDeviceId === "") {
-        alert("Board non connessa!"); 
+            alert("Display is not connected.");
         return;
     }
 
@@ -875,7 +904,7 @@ window.sendCustomMessage = function() {
     if (customText === "") return; 
 
     if (!isMqttConnected || !isHubConnected || currentDeviceId === "") {
-        alert("Board non connessa!"); 
+            alert("Display is not connected.");
         return; 
     }
 

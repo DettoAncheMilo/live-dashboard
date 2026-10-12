@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="en">
 <head>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -241,49 +241,49 @@
         <div id="sessionStatus" aria-live="polite">⏱️ --:-- | 🔄 -</div>
         <div class="header-actions">
             <span id="pairStatus">UNPAIRED</span>
-            <button class="btn-icon" id="toggleSettingsBtn" aria-label="Apri impostazioni" aria-expanded="false" onclick="toggleSettings()">⚙️</button>
+            <button class="btn-icon" id="toggleSettingsBtn" aria-label="Open settings" aria-expanded="false" onclick="toggleSettings()">⚙️</button>
         </div>
         
         <div id="settingsPanel" class="collapsed">
             <div class="input-group">
-                <input type="text" id="deviceIdInput" placeholder="ID display (PIT-XXXX)" aria-label="ID display" autocomplete="off" onchange="pairDevice()">
-                <input type="text" id="myRaceNumber" placeholder="Numero pilota" aria-label="Numero del mio pilota" inputmode="numeric">
+                <input type="text" id="deviceIdInput" placeholder="Display ID (PIT-XXXX)" aria-label="Display ID" autocomplete="off" onchange="pairDevice()">
+                <input type="text" id="myRaceNumber" placeholder="My rider #" aria-label="My rider number" inputmode="numeric">
             </div>
             <div class="input-group">
-                <input type="text" id="raceLinkInput" placeholder="Incolla link gara (FICR, MYLAPS...)" aria-label="Link della gara" autocomplete="url">
+                <input type="text" id="raceLinkInput" placeholder="Paste race link (FICR, MYLAPS, MGM, Time2Race)" aria-label="Race link" autocomplete="url">
                 <button id="loadBtn" onclick="loadNewRace()">LOAD</button>
             </div>
             <button id="stopBtn" onclick="stopSession()">STOP SESSION</button>
         </div>
     </header>
 
-    <section id="selectionBar" aria-label="Selezione pilota e target">
+    <section id="selectionBar" aria-label="Rider and target selection">
         <div class="selection-field">
-            <label for="driverSelect">Il mio pilota</label>
-            <select id="driverSelect" aria-label="Seleziona il mio pilota"><option value="">Seleziona pilota</option></select>
+            <label for="driverSelect">My rider</label>
+            <select id="driverSelect" aria-label="Select my rider"><option value="">Select rider</option></select>
         </div>
         <div class="selection-field">
             <label for="targetSelect">Target</label>
-            <select id="targetSelect" aria-label="Seleziona il target"><option value="">Nessun target</option></select>
+            <select id="targetSelect" aria-label="Select target"><option value="">No target</option></select>
         </div>
     </section>
 
     <div id="mainContentWrapper">
         <div id="liveTimingContainer">
-            <div id="emptyState" role="status">Carica una gara dalle impostazioni, poi seleziona il tuo pilota qui sopra.</div>
+            <div id="emptyState" role="status">Load a race in Settings. The standings will appear here; then select your rider.</div>
             <table id="liveTimingTable">
                 <thead>
                     <tr>
-                        <th class="col-pos">P</th>
+                        <th class="col-pos">POS</th>
                         <th class="col-num">#</th>
                         <th class="col-name">NAME</th>
-                        <th>ULTIMO</th>
+                        <th>LAST</th>
                         <th>BEST</th>
                         <th>GAP</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <!-- Popolato via JS -->
+                    <!-- Populated by JavaScript -->
                 </tbody>
             </table>
         </div>
@@ -292,16 +292,16 @@
     <!-- Bottom Action Bar -->
     <div id="bottomControls">
         <div class="quick-btns">
-            <button class="btn-push" aria-label="Invia comando PUSH" onclick="sendPitCommand('PUSH', '#00FF00')">PUSH</button>
-            <button class="btn-behind" aria-label="Invia avviso pilota dietro" onclick="sendPitCommand('RIDER BEHIND', '#FFCC00')">DIETRO</button>
-            <button class="btn-box" aria-label="Invia comando BOX" onclick="sendPitCommand('BOX', '#FF0000')">BOX</button>
+            <button class="btn-push" aria-label="Send PUSH command" onclick="sendPitCommand('PUSH', '#00FF00')">PUSH</button>
+            <button class="btn-behind" aria-label="Send rider-behind alert" onclick="sendPitCommand('RIDER BEHIND', '#FFCC00')">RIDER BEHIND</button>
+            <button class="btn-box" aria-label="Send BOX command" onclick="sendPitCommand('BOX', '#FF0000')">BOX</button>
         </div>
         <details id="customMessageDetails">
-            <summary>Messaggio personalizzato</summary>
+            <summary>Custom message</summary>
             <div class="custom-msg">
-                <input type="text" id="customTextInput" placeholder="Scrivi messaggio..." aria-label="Messaggio personalizzato" maxlength="19">
-                <input type="color" id="customColorPicker" value="#ff8800" aria-label="Colore messaggio">
-                <button aria-label="Invia messaggio personalizzato" onclick="sendCustomMessage()">INVIA</button>
+                <input type="text" id="customTextInput" placeholder="Type a message..." aria-label="Custom message" maxlength="19">
+                <input type="color" id="customColorPicker" value="#ff8800" aria-label="Message color">
+                <button aria-label="Send custom message" onclick="sendCustomMessage()">SEND</button>
             </div>
         </details>
     </div>
