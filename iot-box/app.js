@@ -25,10 +25,12 @@ const requestScreenWakeLock = async () => {
     } catch (err) { wakeLock = null; }
 };
 
-document.addEventListener('pointerdown', requestScreenWakeLock, { once: true });
+// Retry on user interaction if the first request was denied or later released.
+document.addEventListener('pointerdown', requestScreenWakeLock);
 document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') requestScreenWakeLock();
 });
+window.addEventListener('pageshow', requestScreenWakeLock);
 
 window.toggleSettings = function() {
     const panel = document.getElementById('settingsPanel');
