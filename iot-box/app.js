@@ -14,40 +14,31 @@ let isHubConnected = false;
 const hubStatusAtByBroker = [0, 0];
 let isRaceSession = false;
 
-// ================= LOCK ORIENTAMENTO & WAKE LOCK =================
-let wakeLock = null; 
-const requestFullScreenAndWakeLock = async () => { 
-    try { 
-        let docEl = document.documentElement;
-        if (!document.fullscreenElement && !document.webkitFullscreenElement) { 
-            if (docEl.requestFullscreen) await docEl.requestFullscreen(); 
-            else if (docEl.webkitRequestFullscreen) await docEl.webkitRequestFullscreen(); 
-        } 
-    } catch (err) {} 
-
-    try { 
-        if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); 
-    } catch (err) {} 
-
+// Mantiene acceso ai controlli del browser e all'orientamento scelto dall'utente.
+// Il wake lock viene richiesto al primo tocco e rinnovato quando si torna alla pagina.
+let wakeLock = null;
+const requestScreenWakeLock = async () => {
+    if (!('wakeLock' in navigator) || document.visibilityState !== 'visible' || wakeLock) return;
     try {
-        if (screen.orientation && screen.orientation.lock) {
-            await screen.orientation.lock('portrait');
-        } else if (screen.lockOrientation) {
-            screen.lockOrientation('portrait');
-        }
-    } catch (err) {}
-}; 
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } catch (err) { wakeLock = null; }
+};
 
-document.body.addEventListener('click', requestFullScreenAndWakeLock); 
-document.body.addEventListener('touchstart', requestFullScreenAndWakeLock); 
-document.addEventListener('visibilitychange', async () => { 
-    if (document.visibilityState === 'visible') await requestFullScreenAndWakeLock(); 
+document.addEventListener('pointerdown', requestScreenWakeLock, { once: true });
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') requestScreenWakeLock();
 });
-// =================================================================
 
 window.toggleSettings = function() {
     const panel = document.getElementById('settingsPanel');
     panel.classList.toggle('collapsed');
+    const button = document.getElementById('toggleSettingsBtn');
+    if (button) {
+        const expanded = !panel.classList.contains('collapsed');
+        button.setAttribute('aria-expanded', String(expanded));
+        button.setAttribute('aria-label', expanded ? 'Chiudi impostazioni' : 'Apri impostazioni');
+    }
 }
 
 function isLappedGap(gapStr) {
@@ -70,10 +61,10 @@ function updatePairingUI() {
     const statusEl = document.getElementById("pairStatus");
     if (!statusEl) return;
     if (currentDeviceId === "") {
-        statusEl.innerText = "UNPAIRED"; statusEl.style.color = "#888"; 
+        statusEl.innerText = "NO DISPLAY"; statusEl.style.color = "#888";
     } else {
-        if (isHubConnected) { statusEl.innerText = "RADIO 🟢"; statusEl.style.color = "#22c55e"; } 
-        else { statusEl.innerText = "RADIO 🔴"; statusEl.style.color = "#ef4444"; }
+        if (isHubConnected) { statusEl.innerText = "DISPLAY 🟢"; statusEl.style.color = "#22c55e"; }
+        else { statusEl.innerText = "DISPLAY 🔴"; statusEl.style.color = "#ef4444"; }
     }
 }
 
@@ -241,8 +232,8 @@ window.stopSession = function() {
 function resetDashboard() {
     sessionTimeLeft = "--:--"; myDriverLaps = "-"; isRaceSession = false; 
     document.getElementById('sessionStatus').innerHTML = '⏱️ Waiting for connection...';
-    document.getElementById('driverSelect').innerHTML = '<option value="">Select Rider...</option>';
-    document.getElementById('targetSelect').innerHTML = '<option value="">Select Target...</option>';
+    document.getElementById('driverSelect').innerHTML = '<option value="">Seleziona pilota</option>';
+    document.getElementById('targetSelect').innerHTML = '<option value="">Nessun target</option>';
     
     lastKnownDrivers = []; selectedDriverId = null; selectedTargetId = null;
     localStorage.removeItem('pit_driver_id'); localStorage.removeItem('pit_target_id');
@@ -484,7 +475,7 @@ function populateTargetDropdown(drivers) {
     const select = document.getElementById('targetSelect');
     if (!select) return;
     const currentVal = select.value;
-    select.innerHTML = '<option value="">Select Target...</option>';
+    select.innerHTML = '<option value="">Nessun target</option>';
     drivers.forEach(d => {
         const opt = document.createElement('option'); opt.value = getDriverId(d); 
         const num = d.raceno || d.no || d.number || d.num || ''; 
@@ -499,7 +490,7 @@ function populateDriverDropdown(drivers) {
     const select = document.getElementById('driverSelect');
     if (!select) return;
     const currentVal = select.value;
-    select.innerHTML = '<option value="">Select Rider...</option>';
+    select.innerHTML = '<option value="">Seleziona pilota</option>';
     drivers.forEach(d => {
         const opt = document.createElement('option'); opt.value = getDriverId(d); 
         const num = d.raceno || d.no || d.number || d.num || ''; 
@@ -512,6 +503,7 @@ function populateDriverDropdown(drivers) {
 
 function updateDashboard(driversList) {
     const numInput = document.getElementById('myRaceNumber');
+    const emptyState = document.getElementById('emptyState');
     
     if (numInput && !selectedDriverId && driversList.length > 0) {
         let targetNumRaw = String(numInput.value).trim();
@@ -537,9 +529,16 @@ function updateDashboard(driversList) {
         }
     }
 
-    if (!selectedDriverId) return;
-
     const tbody = document.querySelector('#liveTimingTable tbody');
+    if (!driversList.length) {
+        if (tbody) tbody.innerHTML = '';
+        if (emptyState) {
+            emptyState.hidden = false;
+            emptyState.textContent = 'Carica una gara dalle impostazioni. La classifica apparirà qui; poi seleziona il tuo pilota.';
+        }
+        return;
+    }
+    if (emptyState) emptyState.hidden = true;
     tbody.innerHTML = ''; 
 
     let meRowObj = null;
@@ -586,7 +585,7 @@ function updateDashboard(driversList) {
         
         const columns = [
             ['col-pos', pos], ['col-num', num], ['col-name', name],
-            ['col-time', last], ['col-best', best], ['col-time', gap]
+            ['col-last', last], ['col-best', best], ['col-gap', gap]
         ];
         columns.forEach(([className, value]) => {
             const td = document.createElement('td');
@@ -600,6 +599,9 @@ function updateDashboard(driversList) {
     if (meRowObj) appendRow(meRowObj, true);
     if (targetRowObj) appendRow(targetRowObj, true);
     otherRows.forEach(obj => appendRow(obj, false));
+
+    // La classifica completa resta utile anche prima di impostare il proprio pilota.
+    if (!selectedDriverId) return;
 
     const myIndex = driversList.findIndex(d => String(getDriverId(d)) === String(selectedDriverId));
     if (myIndex === -1) {

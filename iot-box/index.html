@@ -4,12 +4,12 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="PitWall">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#0a0a0a">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>GiroVeloce Commander</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&display=swap');
-
         :root {
             --bg-dark: #0a0a0a;
             --panel-bg: #151515;
@@ -28,7 +28,7 @@
         body {
             margin: 0;
             padding: 0;
-            font-family: 'Montserrat', sans-serif;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             background-color: var(--bg-dark);
             color: var(--text-main);
             display: flex;
@@ -63,21 +63,34 @@
             justify-content: space-between;
             align-items: center;
             background-color: var(--panel-bg);
-            padding: calc(env(safe-area-inset-top) + 15px) 15px 15px 15px;
+            padding: calc(env(safe-area-inset-top) + 8px) 12px 8px;
             border-bottom: 2px solid var(--border);
             z-index: 100;
             position: relative;
         }
 
-        #sessionStatus { font-weight: 700; font-size: 0.9rem; flex-grow: 1; }
+        #sessionStatus { font-weight: 800; font-size: 0.88rem; flex-grow: 1; line-height: 1.3; }
         
         .header-actions { display: flex; align-items: center; gap: 10px; }
         #pairStatus { font-size: 0.8rem; font-weight: 700; color: var(--text-muted); }
         
         .btn-icon {
             background: none; border: none; color: var(--text-main);
-            font-size: 1.5rem; padding: 5px; cursor: pointer;
+            font-size: 1.35rem; width: 44px; height: 44px; padding: 5px; cursor: pointer;
         }
+
+        /* Selezione sempre visibile: sul telefono evita di aprire le impostazioni a ogni cambio target. */
+        #selectionBar {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: 8px;
+            padding: 8px 10px;
+            background: #101010;
+            border-bottom: 1px solid var(--border);
+        }
+        .selection-field { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+        .selection-field label { color: var(--text-muted); font-size: 0.68rem; font-weight: 900; letter-spacing: .06em; text-transform: uppercase; }
+        .selection-field select { min-height: 46px; padding: 8px 28px 8px 10px; font-size: .83rem; }
 
         /* --- SETTINGS PANEL --- */
         #settingsPanel {
@@ -91,7 +104,7 @@
             display: flex;
             flex-direction: column;
             gap: 12px;
-            max-height: 60vh; 
+            max-height: 70dvh;
             overflow-y: auto; 
             z-index: 90;
             box-shadow: 0 15px 30px rgba(0,0,0,0.9);
@@ -111,14 +124,15 @@
             width: 100%;
             background-color: #000; color: var(--text-main);
             border: 1px solid var(--border); border-radius: 6px;
-            padding: 12px; font-family: 'Montserrat', sans-serif; font-weight: 700;
+            padding: 12px; font-family: inherit; font-weight: 700; font-size: 16px;
         }
         button {
-            font-family: 'Montserrat', sans-serif; font-weight: 900;
+            font-family: inherit; font-weight: 900;
             border: none; border-radius: 6px; padding: 12px; cursor: pointer;
             text-transform: uppercase; color: #000; transition: 0.2s;
+            touch-action: manipulation;
         }
-        #loadBtn { background-color: var(--accent-yellow); flex-shrink: 0; width: 100px; }
+        #loadBtn { background-color: var(--accent-yellow); flex-shrink: 0; width: 82px; }
         #stopBtn { background-color: var(--accent-red); color: #fff; display: none; }
 
         #mainContentWrapper {
@@ -139,27 +153,31 @@
             width: 100%;
         }
 
-        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.95rem; }
+        table { width: 100%; min-width: 350px; table-layout: fixed; border-collapse: collapse; text-align: left; font-size: 0.84rem; }
         thead th { 
             position: sticky; 
             top: 0; 
             background-color: var(--bg-dark); 
             z-index: 10;
-            padding: 12px 8px; 
+            padding: 9px 4px;
             height: 40px;
             font-weight: 900; 
             color: var(--text-muted); 
             border-bottom: 2px solid var(--border); 
-            font-size: 0.8rem; 
+            font-size: 0.67rem;
         }
 
-        td { padding: 12px 8px; border-bottom: 1px solid #222; font-weight: 700; white-space: nowrap; }
+        td { padding: 11px 4px; border-bottom: 1px solid #222; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-        .col-pos { width: 40px; text-align: center; }
+        .col-pos { width: 34px; text-align: center; }
         .col-num { width: 40px; color: var(--accent-yellow); text-align: center; }
-        .col-name { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
-        .col-time { color: var(--text-main); }
-        .col-best { color: var(--accent-cyan); }
+        .col-name { width: auto; }
+        .col-last { width: 66px; color: var(--text-main); }
+        .col-best { width: 66px; color: var(--accent-cyan); }
+        .col-gap { width: 58px; }
+
+        #emptyState { padding: 28px 20px; color: var(--text-muted); text-align: center; line-height: 1.5; font-size: .9rem; }
+        #emptyState[hidden] { display: none; }
         
         .pinned-row {
             position: sticky;
@@ -177,26 +195,40 @@
         /* --- BOTTOM CONTROLS --- */
         #bottomControls {
             background-color: var(--panel-bg);
-            padding: 10px 15px 15px 15px;
+            padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
             border-top: 2px solid var(--border);
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 7px;
         }
 
-        .quick-btns { display: flex; gap: 8px; }
-        .quick-btns button { flex: 1; padding: 15px 0; font-size: 0.9rem; }
+        .quick-btns { display: flex; gap: 7px; }
+        .quick-btns button { flex: 1; min-height: 52px; padding: 8px 3px; font-size: clamp(.68rem, 3.4vw, .82rem); }
         .btn-push { background-color: var(--accent-green); }
         .btn-behind { background-color: var(--accent-yellow); }
         .btn-box { background-color: var(--accent-red); color: #fff; }
 
-        .custom-msg { display: flex; gap: 8px; }
-        .custom-msg input[type="text"] { flex-grow: 1; }
+        .custom-msg { display: flex; gap: 7px; }
+        .custom-msg input[type="text"] { flex-grow: 1; min-width: 0; }
         .custom-msg input[type="color"] { 
             width: 50px; height: 43px; padding: 2px; 
             border: 1px solid var(--border); border-radius: 6px; background: #000;
         }
-        .custom-msg button { background-color: #f97316; color: #fff; width: 80px; }
+        .custom-msg button { background-color: #f97316; color: #fff; width: 72px; }
+        #customMessageDetails summary { min-height: 38px; display: flex; align-items: center; justify-content: center; color: #bbb; font-weight: 800; font-size: .76rem; cursor: pointer; list-style: none; }
+        #customMessageDetails summary::-webkit-details-marker { display: none; }
+        #customMessageDetails summary::before { content: '＋'; margin-right: 6px; color: var(--accent-yellow); }
+        #customMessageDetails[open] summary::before { content: '−'; }
+        #customMessageDetails .custom-msg { padding-top: 4px; }
+
+        @media (min-width: 700px) {
+            body { max-width: 760px; margin: 0 auto; border-left: 1px solid #222; border-right: 1px solid #222; }
+            #selectionBar { padding: 10px 14px; }
+            table { font-size: .95rem; }
+            thead th { font-size: .78rem; padding: 12px 8px; }
+            td { padding: 13px 8px; }
+            .quick-btns button { font-size: .95rem; }
+        }
     </style>
 </head>
 <body>
@@ -206,36 +238,46 @@
 
     <!-- Header -->
     <header>
-        <div id="sessionStatus">⏱️ Waiting for connection...</div>
+        <div id="sessionStatus" aria-live="polite">⏱️ --:-- | 🔄 -</div>
         <div class="header-actions">
             <span id="pairStatus">UNPAIRED</span>
-            <button class="btn-icon" id="toggleSettingsBtn" onclick="toggleSettings()">⚙️</button>
+            <button class="btn-icon" id="toggleSettingsBtn" aria-label="Apri impostazioni" aria-expanded="false" onclick="toggleSettings()">⚙️</button>
         </div>
         
         <div id="settingsPanel" class="collapsed">
             <div class="input-group">
-                <input type="text" id="deviceIdInput" placeholder="PIT-XXXX" onchange="pairDevice()">
-                <input type="text" id="myRaceNumber" placeholder="MY#">
+                <input type="text" id="deviceIdInput" placeholder="ID display (PIT-XXXX)" aria-label="ID display" autocomplete="off" onchange="pairDevice()">
+                <input type="text" id="myRaceNumber" placeholder="Numero pilota" aria-label="Numero del mio pilota" inputmode="numeric">
             </div>
             <div class="input-group">
-                <input type="text" id="raceLinkInput" placeholder="Paste Race Link (Ficr, Mylaps, MGM...)">
+                <input type="text" id="raceLinkInput" placeholder="Incolla link gara (FICR, MYLAPS...)" aria-label="Link della gara" autocomplete="url">
                 <button id="loadBtn" onclick="loadNewRace()">LOAD</button>
             </div>
-            <select id="driverSelect"><option value="">Select Rider...</option></select>
-            <select id="targetSelect"><option value="">Select Target...</option></select>
             <button id="stopBtn" onclick="stopSession()">STOP SESSION</button>
         </div>
     </header>
 
+    <section id="selectionBar" aria-label="Selezione pilota e target">
+        <div class="selection-field">
+            <label for="driverSelect">Il mio pilota</label>
+            <select id="driverSelect" aria-label="Seleziona il mio pilota"><option value="">Seleziona pilota</option></select>
+        </div>
+        <div class="selection-field">
+            <label for="targetSelect">Target</label>
+            <select id="targetSelect" aria-label="Seleziona il target"><option value="">Nessun target</option></select>
+        </div>
+    </section>
+
     <div id="mainContentWrapper">
         <div id="liveTimingContainer">
+            <div id="emptyState" role="status">Carica una gara dalle impostazioni, poi seleziona il tuo pilota qui sopra.</div>
             <table id="liveTimingTable">
                 <thead>
                     <tr>
                         <th class="col-pos">P</th>
                         <th class="col-num">#</th>
                         <th class="col-name">NAME</th>
-                        <th>LAST</th>
+                        <th>ULTIMO</th>
                         <th>BEST</th>
                         <th>GAP</th>
                     </tr>
@@ -250,15 +292,18 @@
     <!-- Bottom Action Bar -->
     <div id="bottomControls">
         <div class="quick-btns">
-            <button class="btn-push" onclick="sendPitCommand('PUSH', '#00FF00')">PUSH</button>
-            <button class="btn-behind" onclick="sendPitCommand('RIDER BEHIND', '#FFCC00')">RIDER BEHIND</button>
-            <button class="btn-box" onclick="sendPitCommand('BOX', '#FF0000')">BOX</button>
+            <button class="btn-push" aria-label="Invia comando PUSH" onclick="sendPitCommand('PUSH', '#00FF00')">PUSH</button>
+            <button class="btn-behind" aria-label="Invia avviso pilota dietro" onclick="sendPitCommand('RIDER BEHIND', '#FFCC00')">DIETRO</button>
+            <button class="btn-box" aria-label="Invia comando BOX" onclick="sendPitCommand('BOX', '#FF0000')">BOX</button>
         </div>
-        <div class="custom-msg">
-            <input type="text" id="customTextInput" placeholder="TYPE MESSAGE...">
-            <input type="color" id="customColorPicker" value="#ff8800">
-            <button onclick="sendCustomMessage()">SEND</button>
-        </div>
+        <details id="customMessageDetails">
+            <summary>Messaggio personalizzato</summary>
+            <div class="custom-msg">
+                <input type="text" id="customTextInput" placeholder="Scrivi messaggio..." aria-label="Messaggio personalizzato" maxlength="19">
+                <input type="color" id="customColorPicker" value="#ff8800" aria-label="Colore messaggio">
+                <button aria-label="Invia messaggio personalizzato" onclick="sendCustomMessage()">INVIA</button>
+            </div>
+        </details>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.js"></script>
