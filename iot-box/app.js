@@ -4,6 +4,7 @@ let currentRaceId = localStorage.getItem('pit_race_id') || null;
 let activeEngine = localStorage.getItem('pit_active_engine') || null;
 let ws = null; 
 let lastKnownDrivers = []; 
+let driverSelectionSource = localStorage.getItem('pit_driver_selection_source') || (selectedDriverId ? 'manual' : null);
 
 let sessionTimeLeft = "--:--";
 let myDriverLaps = "-";
@@ -147,8 +148,145 @@ document.addEventListener('input', function(event) {
     if (event.target && event.target.id === 'myRaceNumber') localStorage.setItem('pit_race_number', event.target.value.trim());
 });
 
-function getDriverId(d) { 
-    return d.id || d.user_id || d.raceno || d.no || d.number || d.num || d.fullname || d.name || d.nam || "unknown"; 
+function driverField(driver, keys) {
+    for (const key of keys) {
+        const value = driver[key];
+        if (['string', 'number'].includes(typeof value) && String(value).trim() !== '') {
+            return String(value).trim();
+        }
+    }
+    return '';
+}
+
+function getDriverNumber(driver) {
+    return driverField(driver, ['raceno', 'no', 'number', 'num']);
+}
+
+function getDriverName(driver) {
+    return driverField(driver, ['fullname', 'name', 'nam', 'nickname']);
+}
+
+function normalizeDriverIdentity(value) {
+    return String(value).trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function getDriverCategory(driver) {
+    const raw = driver.category ?? driver.class;
+    const nested = raw && typeof raw === 'object' ? raw : {};
+    const scalar = ['string', 'number'].includes(typeof raw) ? String(raw).trim() : '';
+    const numeric = /^\d+$/.test(scalar);
+    const id = driverField(driver, ['category_id', 'categoryId', 'class_id', 'classId']) ||
+        driverField(nested, ['id']) || (numeric ? scalar : '');
+    const name = driverField(driver, ['category_name', 'categoryName', 'class_name', 'className']) ||
+        driverField(nested, ['name', 'label', 'title']) || (!numeric ? scalar : '');
+    return { id, name };
+}
+
+function getDriverCategoryKey(driver) {
+    const category = getDriverCategory(driver);
+    return category.id ? `id:${category.id}` : category.name ? `name:${normalizeDriverIdentity(category.name)}` : '';
+}
+
+function driverCategoriesConflict(a, b) {
+    const first = getDriverCategory(a);
+    const second = getDriverCategory(b);
+    if (first.id && second.id) return first.id !== second.id;
+    return Boolean(first.name && second.name && normalizeDriverIdentity(first.name) !== normalizeDriverIdentity(second.name));
+}
+
+function getDriverId(driver) {
+    if (driver._pitDriverId) return driver._pitDriverId;
+    const category = getDriverCategoryKey(driver);
+    const userId = driverField(driver, ['user_id']);
+    if (userId) return category ? `user:${JSON.stringify([userId, category])}` : `user:${userId}`;
+    const number = getDriverNumber(driver);
+    const name = normalizeDriverIdentity(getDriverName(driver));
+    // A timing row's id may identify a crossing, rather than the rider.
+    if (number) return `rider:${JSON.stringify(category ? [number, name, category] : [number, name])}`;
+    if (name) return category ? `name:${JSON.stringify([name, category])}` : `name:${name}`;
+    const sourceId = driverField(driver, ['id']);
+    return sourceId ? (category ? `source:${JSON.stringify([sourceId, category])}` : `source:${sourceId}`) : 'unknown';
+}
+
+function findMatchingDriver(incoming, drivers) {
+    const user = driverField(incoming, ['user_id']);
+    const number = getDriverNumber(incoming);
+    const name = normalizeDriverIdentity(getDriverName(incoming));
+    const source = driverField(incoming, ['id']);
+    const candidates = [];
+    drivers.forEach((existing, index) => {
+        if (driverCategoriesConflict(existing, incoming)) return;
+        const oldUser = driverField(existing, ['user_id']);
+        if (user && oldUser) {
+            if (user === oldUser) candidates.push({ index, score: 4 });
+            return;
+        }
+        const oldNumber = getDriverNumber(existing);
+        const oldName = normalizeDriverIdentity(getDriverName(existing));
+        if (number && oldNumber && number !== oldNumber) return;
+        if (name && oldName && name !== oldName) return;
+        const sameNumber = Boolean(number && oldNumber && number === oldNumber);
+        const sameName = Boolean(name && oldName && name === oldName);
+        if (sameNumber || sameName) {
+            candidates.push({ index, score: sameNumber && sameName ? 3 : sameName ? 2 : 1 });
+        } else if (source && source === driverField(existing, ['id'])) {
+            candidates.push({ index, score: 0 });
+        }
+    });
+    if (!candidates.length) return user || number || name ? -1 : -2;
+    const bestScore = Math.max(...candidates.map(candidate => candidate.score));
+    const best = candidates.filter(candidate => candidate.score === bestScore);
+    // A bib number alone cannot choose between two riders in a mixed session.
+    return best.length === 1 ? best[0].index : -2;
+}
+
+function saveRiderSelection(kind, id, driver) {
+    const idKey = kind === 'driver' ? 'pit_driver_id' : 'pit_target_id';
+    const identityKey = kind === 'driver' ? 'pit_driver_identity' : 'pit_target_identity';
+    if (!id) {
+        localStorage.removeItem(idKey);
+        localStorage.removeItem(identityKey);
+        return;
+    }
+    if (localStorage.getItem(idKey) !== id) localStorage.setItem(idKey, id);
+    if (driver) {
+        const category = getDriverCategory(driver);
+        const identity = JSON.stringify({ user_id: driverField(driver, ['user_id']),
+            raceno: getDriverNumber(driver), fullname: getDriverName(driver),
+            category_id: category.id, category_name: category.name });
+        if (localStorage.getItem(identityKey) !== identity) localStorage.setItem(identityKey, identity);
+    }
+}
+
+function restoreRiderSelection(kind, id, drivers) {
+    if (!id) return id;
+    let driver = drivers.find(candidate => String(getDriverId(candidate)) === String(id));
+    if (!driver) {
+        const identityKey = kind === 'driver' ? 'pit_driver_identity' : 'pit_target_identity';
+        let identity = null;
+        try { identity = JSON.parse(localStorage.getItem(identityKey)); } catch (error) {}
+        // Migrate selections saved before category metadata was available.
+        if (!identity) {
+            try {
+                if (id.startsWith('rider:')) {
+                    const [number, name] = JSON.parse(id.slice(6));
+                    identity = { raceno: number, fullname: name };
+                } else if (id.startsWith('user:') && !id.slice(5).startsWith('[')) {
+                    identity = { user_id: id.slice(5) };
+                }
+            } catch (error) {}
+        }
+        if (identity && typeof identity === 'object' && !Array.isArray(identity)) {
+            const index = findMatchingDriver(identity, drivers);
+            if (index >= 0) driver = drivers[index];
+        }
+    }
+    if (driver) {
+        const resolvedId = String(getDriverId(driver));
+        saveRiderSelection(kind, resolvedId, driver);
+        return resolvedId;
+    }
+    return id;
 }
 
 function isDriverInPit(driver) {
@@ -264,6 +402,10 @@ function resetDashboard() {
     
     lastKnownDrivers = []; selectedDriverId = null; selectedTargetId = null;
     localStorage.removeItem('pit_driver_id'); localStorage.removeItem('pit_target_id');
+    localStorage.removeItem('pit_driver_identity'); localStorage.removeItem('pit_target_identity');
+    localStorage.removeItem('pit_driver_selection_source'); driverSelectionSource = null;
+    const selectionHint = document.getElementById('driverSelectionHint');
+    if (selectionHint) selectionHint.hidden = true;
     
     document.querySelector('#liveTimingTable tbody').innerHTML = '';
     window.setButtonState('default');
@@ -272,7 +414,10 @@ function resetDashboard() {
 function changeDriver() {
     const selectElement = document.getElementById('driverSelect');
     if (!selectElement.value) return;
-    selectedDriverId = selectElement.value; localStorage.setItem('pit_driver_id', selectedDriverId);
+    selectedDriverId = selectElement.value;
+    driverSelectionSource = 'manual';
+    localStorage.setItem('pit_driver_selection_source', driverSelectionSource);
+    saveRiderSelection('driver', selectedDriverId, lastKnownDrivers.find(driver => String(getDriverId(driver)) === selectedDriverId));
     if (lastKnownDrivers.length > 0) updateDashboard(lastKnownDrivers);
 }
 
@@ -280,7 +425,7 @@ function changeTarget() {
     const selectElement = document.getElementById('targetSelect');
     if(!selectElement) return;
     selectedTargetId = selectElement.value;
-    if(selectedTargetId) localStorage.setItem('pit_target_id', selectedTargetId); else localStorage.removeItem('pit_target_id');
+    saveRiderSelection('target', selectedTargetId, lastKnownDrivers.find(driver => String(getDriverId(driver)) === selectedTargetId));
     if (lastKnownDrivers.length > 0) updateDashboard(lastKnownDrivers);
 }
 
@@ -293,35 +438,25 @@ function mergeAndSortDrivers(mappedDrivers) {
     const now = Date.now();
     mappedDrivers.forEach(sourceDriver => {
         const newD = { ...sourceDriver, isInPit: isDriverInPit(sourceDriver) };
-        const idx = lastKnownDrivers.findIndex(oldD => {
-            let oldIdStr = String(getDriverId(oldD)); 
-            let newIdStr = String(getDriverId(newD));
-            let isFicrOrMgm = oldIdStr.includes('ficr_') || oldIdStr.includes('mgm_');
-            
-            if (!isFicrOrMgm && oldIdStr !== "unknown" && oldIdStr === newIdStr) return true;
-            
-            let oldNum = String(oldD.raceno || oldD.no || oldD.number || oldD.num || '').trim();
-            let newNum = String(newD.raceno || newD.no || newD.number || newD.num || '').trim();
-            if (oldNum !== "" && newNum !== "" && oldNum === newNum) return true;
-            
-            let oldName = String(oldD.fullname || oldD.name || oldD.nam || oldD.nickname || '').trim().toLowerCase();
-            let newName = String(newD.fullname || newD.name || newD.nam || newD.nickname || '').trim().toLowerCase();
-            if (oldName !== "" && newName !== "" && oldName === newName) return true;
-            
-            return false;
-        });
+        const idx = findMatchingDriver(newD, lastKnownDrivers);
+        if (idx === -2) return;
 
         if (idx !== -1) {
-            lastKnownDrivers[idx] = { ...lastKnownDrivers[idx], ...newD, _lastSeenAt: now };
+            const existing = lastKnownDrivers[idx];
+            lastKnownDrivers[idx] = {
+                ...existing, ...newD, _pitDriverId: getDriverId(existing), _lastSeenAt: now
+            };
         } else {
-            lastKnownDrivers.push({ ...newD, _lastSeenAt: now });
+            lastKnownDrivers.push({ ...newD, _pitDriverId: getDriverId(newD), _lastSeenAt: now });
         }
     });
 
-    // Rimuove righe non più presenti nel feed dopo una finestra per gli aggiornamenti intermittenti.
-    lastKnownDrivers = lastKnownDrivers.filter(d => now - (d._lastSeenAt || now) <= 15000);
+    // Live feeds may send only the rider who just crossed the line.
+    // Keep the session roster between laps; resetDashboard clears it for a new race.
     
     lastKnownDrivers.sort((a, b) => parseInt(a.position || a.pos || 9999) - parseInt(b.position || b.pos || 9999));
+    selectedDriverId = restoreRiderSelection('driver', selectedDriverId, lastKnownDrivers);
+    selectedTargetId = restoreRiderSelection('target', selectedTargetId, lastKnownDrivers);
     populateDriverDropdown(lastKnownDrivers); 
     populateTargetDropdown(lastKnownDrivers); 
     updateDashboard(lastKnownDrivers);
@@ -499,62 +634,104 @@ async function connectMgm(originalUrl) {
     } catch (error) { window.setButtonState('error'); }
 }
 
-function populateTargetDropdown(drivers) {
-    const select = document.getElementById('targetSelect');
-    if (!select) return;
-    const currentVal = select.value;
-    select.innerHTML = '<option value="">No target</option>';
-    drivers.forEach(d => {
-        const opt = document.createElement('option'); opt.value = getDriverId(d); 
-        const num = d.raceno || d.no || d.number || d.num || ''; 
-        const name = d.fullname || d.name || d.nam || d.nickname || `Rider ${getDriverId(d)}`;
-        opt.textContent = `${num ? `#${num} ` : ''}${name}${isDriverInPit(d) ? ' · IN PIT' : ''}`;
-        if (String(opt.value) === String(selectedTargetId) || String(opt.value) === String(currentVal)) opt.selected = true;
-        select.appendChild(opt);
+function populateDropdown(selectId, drivers, placeholder, selectedId) {
+    const select = document.getElementById(selectId);
+    // Mutating options can reset an open native picker, particularly on iPhone.
+    // Apply pending roster changes once the user leaves this control.
+    if (!select || document.activeElement === select) return;
+
+    const entries = drivers.map(driver => {
+        const number = getDriverNumber(driver);
+        const name = getDriverName(driver) || (number ? `Rider ${number}` : 'Rider');
+        return {
+            value: String(getDriverId(driver)), number, name,
+            label: `${number ? `#${number} ` : ''}${name}${isDriverInPit(driver) ? ' · IN PIT' : ''}`
+        };
     });
+    // The picker order must not change with the live standings.
+    const compare = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+    entries.sort((a, b) => compare(a.number, b.number) || compare(a.name, b.name) || compare(a.value, b.value));
+    entries.unshift({ value: '', label: placeholder });
+
+    const selectedValue = selectedId == null ? '' : String(selectedId);
+    const existing = new Map(Array.from(select.options, option => [option.value, option]));
+    const wanted = new Set(entries.map(entry => entry.value));
+    for (const [value, option] of existing) {
+        if (!wanted.has(value) && value !== selectedValue) option.remove();
+    }
+    entries.forEach((entry, index) => {
+        const option = existing.get(entry.value) || document.createElement('option');
+        if (option.value !== entry.value) option.value = entry.value;
+        if (option.textContent !== entry.label) option.textContent = entry.label;
+        const current = select.options[index];
+        if (current !== option) select.insertBefore(option, current || null);
+    });
+    const nextValue = Array.from(select.options).some(option => option.value === selectedValue) ? selectedValue : '';
+    if (select.value !== nextValue) select.value = nextValue;
+}
+
+function populateTargetDropdown(drivers) {
+    populateDropdown('targetSelect', drivers, 'No target', selectedTargetId);
 }
 
 function populateDriverDropdown(drivers) {
-    const select = document.getElementById('driverSelect');
-    if (!select) return;
-    const currentVal = select.value;
-    select.innerHTML = '<option value="">Select rider</option>';
-    drivers.forEach(d => {
-        const opt = document.createElement('option'); opt.value = getDriverId(d); 
-        const num = d.raceno || d.no || d.number || d.num || ''; 
-        const name = d.fullname || d.name || d.nam || d.nickname || `Rider ${getDriverId(d)}`;
-        opt.textContent = `${num ? `#${num} ` : ''}${name}${isDriverInPit(d) ? ' · IN PIT' : ''}`;
-        if (String(opt.value) === String(selectedDriverId) || String(opt.value) === String(currentVal)) opt.selected = true;
-        select.appendChild(opt);
-    });
+    populateDropdown('driverSelect', drivers, 'Select rider', selectedDriverId);
+}
+
+document.addEventListener('focusout', event => {
+    if (event.target && ['driverSelect', 'targetSelect'].includes(event.target.id)) {
+        queueMicrotask(() => {
+            populateDriverDropdown(lastKnownDrivers);
+            populateTargetDropdown(lastKnownDrivers);
+        });
+    }
+});
+
+function clearSelectedRiderTelemetry() {
+    myDriverLaps = '-';
+    updateBanner();
+    if (isMqttConnected && currentDeviceId !== '') {
+        const emptyTelemetry = {
+            p: '-', gap: '--', ahead: '--', ahead_html: '--', gap_a: '--', gap_a_bl: '--',
+            time_a_ll: '--:--', time_a_bl: '--:--', behind: '--', behind_html: '--',
+            gap_b: '--', gap_b_bl: '--', time_b_ll: 'P-', time_b_bl: '#--',
+            num: '--', time: sessionTimeLeft, laps: '-', ca: 0, cb: 0, cab: 0, cbb: 1
+        };
+        const resetMessage = new Paho.MQTT.Message(JSON.stringify(emptyTelemetry));
+        resetMessage.destinationName = `pitboard/${currentDeviceId}/live`;
+        try { mqttClient.send(resetMessage); } catch (error) {}
+    }
 }
 
 function updateDashboard(driversList) {
     const numInput = document.getElementById('myRaceNumber');
     const emptyState = document.getElementById('emptyState');
     
-    if (numInput && !selectedDriverId && driversList.length > 0) {
-        let targetNumRaw = String(numInput.value).trim();
-        
-        if (targetNumRaw !== "") {
-            let targetNumMatch = isNaN(targetNumRaw) ? targetNumRaw.toUpperCase() : parseInt(targetNumRaw, 10).toString();
-            
-            const autoDriver = driversList.find(d => {
-                let dNumRaw = String(d.raceno || d.no || d.number || d.num || "").trim();
-                if (dNumRaw === "") return false;
-                let dNumMatch = isNaN(dNumRaw) ? dNumRaw.toUpperCase() : parseInt(dNumRaw, 10).toString();
-                return dNumMatch === targetNumMatch;
-            });
-            
-            if (autoDriver) {
-                selectedDriverId = getDriverId(autoDriver); 
-                localStorage.setItem('pit_driver_id', selectedDriverId);
-                
-                const selectEl = document.getElementById('driverSelect'); 
-                if (selectEl) selectEl.value = selectedDriverId;
-                
-            }
-        }
+    const requestedNumber = numInput ? numInput.value.trim() : '';
+    const normalizeNumber = value => /^\d+$/.test(value) ? value.replace(/^0+(?=\d)/, '') : value.toUpperCase();
+    const numberMatches = requestedNumber ? driversList.filter(driver =>
+        normalizeNumber(getDriverNumber(driver)) === normalizeNumber(requestedNumber)) : [];
+    if (driverSelectionSource === 'auto' && numberMatches.length > 1) {
+        selectedDriverId = null;
+        driverSelectionSource = null;
+        localStorage.removeItem('pit_driver_selection_source');
+        saveRiderSelection('driver', null);
+        clearSelectedRiderTelemetry();
+        populateDriverDropdown(driversList);
+    }
+    if (!selectedDriverId && numberMatches.length === 1) {
+        const autoDriver = numberMatches[0];
+        selectedDriverId = String(getDriverId(autoDriver));
+        driverSelectionSource = 'auto';
+        localStorage.setItem('pit_driver_selection_source', driverSelectionSource);
+        saveRiderSelection('driver', selectedDriverId, autoDriver);
+        const select = document.getElementById('driverSelect');
+        if (select && document.activeElement !== select) select.value = selectedDriverId;
+    }
+    const selectionHint = document.getElementById('driverSelectionHint');
+    if (selectionHint) {
+        selectionHint.hidden = Boolean(selectedDriverId) || numberMatches.length <= 1;
+        if (!selectionHint.hidden) selectionHint.textContent = `More than one rider uses #${requestedNumber}. Select your rider by name in My rider.`;
     }
 
     const tbody = document.querySelector('#liveTimingTable tbody');
@@ -633,19 +810,7 @@ function updateDashboard(driversList) {
 
     const myIndex = driversList.findIndex(d => String(getDriverId(d)) === String(selectedDriverId));
     if (myIndex === -1) {
-        myDriverLaps = '-';
-        updateBanner();
-        if (isMqttConnected && currentDeviceId !== '') {
-            const emptyTelemetry = {
-                p: '-', gap: '--', ahead: '--', ahead_html: '--', gap_a: '--', gap_a_bl: '--',
-                time_a_ll: '--:--', time_a_bl: '--:--', behind: '--', behind_html: '--',
-                gap_b: '--', gap_b_bl: '--', time_b_ll: 'P-', time_b_bl: '#--',
-                num: '--', time: sessionTimeLeft, laps: '-', ca: 0, cb: 0, cab: 0, cbb: 1
-            };
-            const resetMessage = new Paho.MQTT.Message(JSON.stringify(emptyTelemetry));
-            resetMessage.destinationName = `pitboard/${currentDeviceId}/live`;
-            try { mqttClient.send(resetMessage); } catch (error) {}
-        }
+        clearSelectedRiderTelemetry();
         return;
     }
     

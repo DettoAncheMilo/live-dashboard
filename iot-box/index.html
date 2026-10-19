@@ -91,6 +91,7 @@
         .selection-field { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
         .selection-field label { color: var(--text-muted); font-size: 0.68rem; font-weight: 900; letter-spacing: .06em; text-transform: uppercase; }
         .selection-field select { min-height: 46px; padding: 8px 28px 8px 10px; font-size: .83rem; }
+        #driverSelectionHint { grid-column: 1 / -1; margin: 0; font-size: .75rem; line-height: 1.35; color: var(--accent-yellow); }
 
         /* --- SETTINGS PANEL --- */
         #settingsPanel {
@@ -260,12 +261,13 @@
     <section id="selectionBar" aria-label="Rider and target selection">
         <div class="selection-field">
             <label for="driverSelect">My rider</label>
-            <select id="driverSelect" aria-label="Select my rider"><option value="">Select rider</option></select>
+            <select id="driverSelect" aria-label="Select my rider" aria-describedby="driverSelectionHint"><option value="">Select rider</option></select>
         </div>
         <div class="selection-field">
             <label for="targetSelect">Target</label>
             <select id="targetSelect" aria-label="Select target"><option value="">No target</option></select>
         </div>
+        <p id="driverSelectionHint" role="status" hidden></p>
     </section>
 
     <div id="mainContentWrapper">
@@ -307,6 +309,6 @@
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.js"></script>
-    <script src="app.js"></script>
+    <script src="app.js?v=20261019-riders1"></script>
 </body>
 </html>
