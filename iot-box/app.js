@@ -3,6 +3,9 @@ let selectedTargetId = localStorage.getItem('pit_target_id') || null;
 let currentRaceId = localStorage.getItem('pit_race_id') || null;
 let activeEngine = localStorage.getItem('pit_active_engine') || null;
 let ws = null; 
+let time2raceHeartbeat = null;
+let time2raceConnectedOnce = false;
+let time2raceReconnectAttempt = 0;
 let lastKnownDrivers = []; 
 let driverSelectionSource = localStorage.getItem('pit_driver_selection_source') || (selectedDriverId ? 'manual' : null);
 
@@ -133,10 +136,10 @@ window.setButtonState = function(state) {
         if (stopBtn) stopBtn.style.display = 'block'; 
     } else if (state === 'connecting') {
         btn.style.backgroundColor = 'var(--accent-blue)'; btn.style.color = '#fff'; btn.innerText = '...';
-        if (stopBtn) stopBtn.style.display = 'none'; 
+        if (stopBtn) stopBtn.style.display = currentRaceId ? 'block' : 'none';
     } else if (state === 'error') {
         btn.style.backgroundColor = 'var(--accent-red)'; btn.style.color = '#fff'; btn.innerText = 'ERR';
-        if (stopBtn) stopBtn.style.display = 'none'; 
+        if (stopBtn) stopBtn.style.display = currentRaceId ? 'block' : 'none';
     } else {
         btn.style.backgroundColor = 'var(--accent-yellow)'; btn.style.color = '#000'; btn.innerText = 'LOAD';
         if (stopBtn) stopBtn.style.display = 'none'; 
@@ -197,7 +200,8 @@ function driverCategoriesConflict(a, b) {
 function getDriverId(driver) {
     if (driver._pitDriverId) return driver._pitDriverId;
     const category = getDriverCategoryKey(driver);
-    const userId = driverField(driver, ['user_id']);
+    // Time2Race's user_id identifies the timing account, shared by every rider.
+    const userId = driver._pitProvider === 'time2race' ? '' : driverField(driver, ['user_id']);
     if (userId) return category ? `user:${JSON.stringify([userId, category])}` : `user:${userId}`;
     const number = getDriverNumber(driver);
     const name = normalizeDriverIdentity(getDriverName(driver));
@@ -209,14 +213,14 @@ function getDriverId(driver) {
 }
 
 function findMatchingDriver(incoming, drivers) {
-    const user = driverField(incoming, ['user_id']);
+    const user = incoming._pitProvider === 'time2race' ? '' : driverField(incoming, ['user_id']);
     const number = getDriverNumber(incoming);
     const name = normalizeDriverIdentity(getDriverName(incoming));
     const source = driverField(incoming, ['id']);
     const candidates = [];
     drivers.forEach((existing, index) => {
         if (driverCategoriesConflict(existing, incoming)) return;
-        const oldUser = driverField(existing, ['user_id']);
+        const oldUser = existing._pitProvider === 'time2race' ? '' : driverField(existing, ['user_id']);
         if (user && oldUser) {
             if (user === oldUser) candidates.push({ index, score: 4 });
             return;
@@ -337,7 +341,20 @@ function parseTimeToMs(str) {
 function updateBanner() {
     const statusBox = document.getElementById('sessionStatus');
     if (!statusBox) return;
-    statusBox.textContent = `⏱️ ${sessionTimeLeft} | 🔄 ${myDriverLaps} LAPS`;
+    const text = `⏱️ ${sessionTimeLeft} | 🔄 ${myDriverLaps} LAPS`;
+    if (statusBox.textContent !== text) statusBox.textContent = text;
+}
+
+function closeTimingSocket() {
+    if (window.wsTimeout) clearTimeout(window.wsTimeout);
+    window.wsTimeout = null;
+    if (time2raceHeartbeat) clearInterval(time2raceHeartbeat);
+    time2raceHeartbeat = null;
+    if (ws) {
+        ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+        try { ws.close(); } catch (error) {}
+        ws = null;
+    }
 }
 
 window.loadNewRace = function() {
@@ -380,8 +397,7 @@ window.stopSession = function() {
         msgResetLite.destinationName = "pitboard/" + currentDeviceId + "/live";
         try { mqttClient.send(msgResetLite); } catch(e) {}
     }
-    if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); ws = null; }
-    if (window.wsTimeout) clearTimeout(window.wsTimeout);
+    closeTimingSocket();
     if (window.ficrTimeout) clearTimeout(window.ficrTimeout);
     
     currentRaceId = null; activeEngine = null;
@@ -395,6 +411,8 @@ window.stopSession = function() {
 }
 
 function resetDashboard() {
+    time2raceConnectedOnce = false;
+    time2raceReconnectAttempt = 0;
     sessionTimeLeft = "--:--"; myDriverLaps = "-"; isRaceSession = false; 
     document.getElementById('sessionStatus').textContent = '⏱️ Waiting for connection...';
     document.getElementById('driverSelect').innerHTML = '<option value="">Select rider</option>';
@@ -434,18 +452,23 @@ document.addEventListener('change', function(event) {
     if (event.target && event.target.id === 'targetSelect') changeTarget(); 
 });
 
-function mergeAndSortDrivers(mappedDrivers) {
+function mergeAndSortDrivers(mappedDrivers, replaceRoster = false) {
     const now = Date.now();
+    const previousRoster = lastKnownDrivers;
+    if (replaceRoster) lastKnownDrivers = [];
     mappedDrivers.forEach(sourceDriver => {
         const newD = { ...sourceDriver, isInPit: isDriverInPit(sourceDriver) };
-        const idx = findMatchingDriver(newD, lastKnownDrivers);
-        if (idx === -2) return;
+        const reference = replaceRoster ? previousRoster : lastKnownDrivers;
+        const idx = findMatchingDriver(newD, reference);
+        if (idx === -2 && !replaceRoster) return;
 
-        if (idx !== -1) {
-            const existing = lastKnownDrivers[idx];
-            lastKnownDrivers[idx] = {
+        if (idx >= 0) {
+            const existing = reference[idx];
+            const merged = {
                 ...existing, ...newD, _pitDriverId: getDriverId(existing), _lastSeenAt: now
             };
+            if (replaceRoster) lastKnownDrivers.push(merged);
+            else lastKnownDrivers[idx] = merged;
         } else {
             lastKnownDrivers.push({ ...newD, _pitDriverId: getDriverId(newD), _lastSeenAt: now });
         }
@@ -464,6 +487,7 @@ function mergeAndSortDrivers(mappedDrivers) {
 
 async function connectFicr(eventName) {
     if (!currentRaceId || activeEngine !== 'ficr') return;
+    closeTimingSocket();
     if (window.ficrTimeout) clearTimeout(window.ficrTimeout);
     try {
         const proxyUrl = 'https://mylaps-proxy.nico-mila91.workers.dev/?url=';
@@ -510,14 +534,36 @@ async function pollFicr(eventName, sessionId) {
 
 function connectTime2Race() {
     if (!currentRaceId || activeEngine !== 'time2race') return;
-    if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); }
-    if (window.wsTimeout) clearTimeout(window.wsTimeout);
-    ws = new WebSocket(`wss://api-stg.mk.time2race.it/live/${currentRaceId}/ranking/`);
-    ws.onopen = function() { window.setButtonState('connected'); document.getElementById('settingsPanel').classList.add('collapsed'); }; 
-    ws.onmessage = function(event) {
+    closeTimingSocket();
+    window.setButtonState('connecting');
+    const raceId = String(currentRaceId);
+    const socket = ws = new WebSocket(`wss://api-stg.mk.time2race.it/live/${raceId}/ranking/`);
+    const current = () => ws === socket && activeEngine === 'time2race' && String(currentRaceId) === raceId;
+    let newestTimestamp = -Infinity;
+    socket.onopen = function() {
+        if (!current()) return;
+        // Same subscription and keep-alive protocol as the official Time2Race client.
+        socket.send(JSON.stringify({state: 1}));
+        time2raceHeartbeat = setInterval(() => {
+            if (current() && socket.readyState === WebSocket.OPEN) {
+                try { socket.send(JSON.stringify({state: -1})); } catch (error) { socket.close(); }
+            }
+        }, 30000);
+        window.setButtonState('connected');
+        if (!time2raceConnectedOnce) document.getElementById('settingsPanel').classList.add('collapsed');
+        time2raceConnectedOnce = true;
+    };
+    socket.onmessage = function(event) {
+        if (!current()) return;
         if (event.data === 'ping' || event.data === 'pong') return;
         try {
             const payload = JSON.parse(event.data);
+            const timestamp = Number(payload.timestamp);
+            if (Number.isFinite(timestamp)) {
+                if (timestamp < newestTimestamp) return;
+                newestTimestamp = timestamp;
+            }
+            time2raceReconnectAttempt = 0;
             const raceInfo = payload.race || (payload.data ? payload.data.race : null);
             if (raceInfo) {
                 sessionTimeLeft = raceInfo.remaining || raceInfo.timeremaining || raceInfo.time_left || raceInfo.racetime || "--:--";
@@ -526,19 +572,29 @@ function connectTime2Race() {
                 updateBanner();
             }
             let incomingDrivers = payload.drivers || (payload.data ? payload.data.drivers : null);
-            if (incomingDrivers && incomingDrivers.length > 0) {
-                mergeAndSortDrivers(incomingDrivers);
+            if (Array.isArray(incomingDrivers)) {
+                // Time2Race supplies the complete ranking, including riders removed from it.
+                mergeAndSortDrivers(incomingDrivers.map(driver => ({...driver, _pitProvider: 'time2race'})), true);
             }
         } catch (err) {}
     };
-    ws.onerror = function() { window.setButtonState('error'); };
-    ws.onclose = function() { window.wsTimeout = setTimeout(connectTime2Race, 3000); };
+    socket.onerror = function() { if (current()) window.setButtonState('connecting'); };
+    socket.onclose = function(event) {
+        if (!current()) return;
+        if (time2raceHeartbeat) clearInterval(time2raceHeartbeat);
+        time2raceHeartbeat = null; ws = null;
+        if ([4401,4404,4999].includes(event.code)) { window.setButtonState('error'); return; }
+        window.setButtonState('connecting');
+        const delay = Math.min(30000,3000 * 2 ** Math.min(time2raceReconnectAttempt++,4));
+        window.wsTimeout = setTimeout(() => {
+            if (activeEngine === 'time2race' && String(currentRaceId) === raceId) connectTime2Race();
+        },delay);
+    };
 }
 
 async function connectMylaps(sessionId) {
     if (!currentRaceId || activeEngine !== 'mylaps') return;
-    if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); }
-    if (window.wsTimeout) clearTimeout(window.wsTimeout);
+    closeTimingSocket();
     try {
         const proxyUrl = 'https://mylaps-proxy.nico-mila91.workers.dev/?url=';
         const negotiateUrl = encodeURIComponent('https://notifications.speedhive.com/api/negotiate?negotiateVersion=1');
@@ -584,8 +640,7 @@ async function connectMylaps(sessionId) {
 
 async function connectMgm(originalUrl) {
     if (!currentRaceId || activeEngine !== 'mgm') return;
-    if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); }
-    if (window.wsTimeout) clearTimeout(window.wsTimeout);
+    closeTimingSocket();
     try {
         const proxyUrl = 'https://mylaps-proxy.nico-mila91.workers.dev/?url='; 
         const baseUrl = "https://live.mgmtiming.it/signalr";
@@ -739,12 +794,15 @@ function updateDashboard(driversList) {
         if (tbody) tbody.innerHTML = '';
         if (emptyState) {
             emptyState.hidden = false;
-            emptyState.textContent = 'Load a race in Settings. The standings will appear here; then select your rider.';
+            const message = currentRaceId ? 'Waiting for the timing session to publish standings.' : 'Load a race in Settings. The standings will appear here; then select your rider.';
+            if (emptyState.textContent !== message) emptyState.textContent = message;
         }
         return;
     }
     if (emptyState) emptyState.hidden = true;
-    tbody.innerHTML = ''; 
+    const existingRows = new Map(Array.from(tbody.children, row => [row.dataset.driverId, row]));
+    const retainedRows = new Set();
+    let rowIndex = 0;
 
     let meRowObj = null;
     let targetRowObj = null;
@@ -766,19 +824,26 @@ function updateDashboard(driversList) {
     const appendRow = (obj, isPinned) => {
         const d = obj.data;
         const dId = getDriverId(d);
-        const tr = document.createElement('tr');
+        const key = String(dId);
+        const tr = existingRows.get(key) || document.createElement('tr');
+        if (tr.dataset.driverId !== key) tr.dataset.driverId = key;
+        retainedRows.add(tr);
         
         let isMe = String(dId) === String(selectedDriverId);
         let isTarget = String(dId) === String(selectedTargetId);
         
-        if (isMe) tr.classList.add('row-me');
-        if (isTarget) tr.classList.add('row-target');
+        const classes = [];
+        if (isMe) classes.push('row-me');
+        if (isTarget) classes.push('row-target');
         
         if (isPinned) {
-            tr.classList.add('pinned-row');
-            tr.style.top = topOffsetCounter + 'px';
+            classes.push('pinned-row');
+            const top = topOffsetCounter + 'px';
+            if (tr.style.top !== top) tr.style.top = top;
             topOffsetCounter += 45; 
-        }
+        } else if (tr.style.top) tr.style.top = '';
+        const className = classes.join(' ');
+        if (tr.className !== className) tr.className = className;
         
         const pos = d.position || d.pos || obj.index;
         const num = d.raceno || d.no || d.number || d.num || '';
@@ -792,18 +857,21 @@ function updateDashboard(driversList) {
             ['col-pos', pos], ['col-num', num], ['col-name', name],
             ['col-last', last], ['col-best', best], ['col-gap', gap]
         ];
-        columns.forEach(([className, value]) => {
-            const td = document.createElement('td');
-            td.className = className;
-            td.textContent = String(value ?? '');
-            tr.appendChild(td);
+        columns.forEach(([cellClass, value], index) => {
+            const td = tr.children[index] || document.createElement('td');
+            if (td.className !== cellClass) td.className = cellClass;
+            const text = String(value ?? '');
+            if (td.dataset.value !== text) { td.textContent = text; td.dataset.value = text; }
+            if (td.parentNode !== tr) tr.appendChild(td);
         });
-        tbody.appendChild(tr);
+        const currentRow = tbody.children[rowIndex++];
+        if (currentRow !== tr) tbody.insertBefore(tr, currentRow || null);
     };
 
     if (meRowObj) appendRow(meRowObj, true);
     if (targetRowObj) appendRow(targetRowObj, true);
     otherRows.forEach(obj => appendRow(obj, false));
+    for (const row of Array.from(tbody.children)) if (!retainedRows.has(row)) row.remove();
 
     // La classifica completa resta utile anche prima di impostare il proprio pilota.
     if (!selectedDriverId) return;
@@ -1086,3 +1154,4 @@ window.sendCustomMessage = function() {
 };
 
 connectMQTT();
+
