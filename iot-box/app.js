@@ -17,6 +17,36 @@ let isMqttConnected = false;
 let isHubConnected = false;
 const hubStatusAtByBroker = [0, 0];
 let isRaceSession = false;
+let lastTimingContactAt = 0;
+let latestLiveTelemetry = null;
+
+function timingSourceAvailable() {
+    if (!currentRaceId || !lastTimingContactAt) return false;
+    // FICR polls every 3 s; socket providers also send keep-alives when standings are unchanged.
+    const contactLimit = activeEngine === 'ficr' ? 15000 : 75000;
+    if (Date.now() - lastTimingContactAt > contactLimit) return false;
+    return activeEngine === 'ficr' || Boolean(ws && ws.readyState === WebSocket.OPEN);
+}
+
+function sendLatestLiveTelemetry() {
+    const cached = latestLiveTelemetry;
+    if (!cached || !isMqttConnected || !timingSourceAvailable() || !selectedDriverId) return;
+    if (cached.device !== currentDeviceId || cached.race !== currentRaceId ||
+        cached.engine !== activeEngine || cached.driver !== selectedDriverId) return;
+    const message = new Paho.MQTT.Message(cached.payload);
+    message.destinationName = `pitboard/${currentDeviceId}/live`;
+    try { mqttClient.send(message); } catch (error) {}
+}
+
+function rememberLiveTelemetry(payload) {
+    latestLiveTelemetry = {payload, device: currentDeviceId, race: currentRaceId,
+        engine: activeEngine, driver: selectedDriverId};
+    sendLatestLiveTelemetry();
+}
+
+// Keep the display link alive independently of crossings and ranking changes.
+// Repeating a snapshot must not rebuild the table or survive a source disconnection/reset.
+const commanderHeartbeat = setInterval(sendLatestLiveTelemetry, 3000);
 
 // Mantiene acceso ai controlli del browser e all'orientamento scelto dall'utente.
 // Il wake lock viene richiesto al primo tocco e rinnovato quando si torna alla pagina.
@@ -114,6 +144,7 @@ window.pairDevice = function() {
     const input = inputEl.value.trim().toUpperCase();
     
     if (input === "") {
+        latestLiveTelemetry = null;
         const previousDeviceId = localStorage.getItem("pitboard_id") || currentDeviceId;
         if (typeof mqttClient !== 'undefined' && isMqttConnected) {
             const resetLite = JSON.stringify({ p: "-", gap: "--", ahead: "--", ahead_html: "-", gap_a: "--", gap_a_bl: "--", time_a_ll: "-", time_a_bl: "-", behind: "--", behind_html: "-", gap_b: "--", gap_b_bl: "--", time_b_ll: "-", time_b_bl: "-", num: "--", time: "--:--", laps: "-", ca: 0, cb: 0, cab: 0, cbb: 2 });
@@ -140,7 +171,7 @@ window.pairDevice = function() {
     localStorage.setItem("pitboard_id", currentDeviceId);
     updatePairingUI();
 
-    if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
+    if (pairingChanged && typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
         const pairLite = JSON.stringify({ p: "-", gap: "--", ahead: "--", ahead_html: "-", gap_a: "--", gap_a_bl: "--", time_a_ll: "-", time_a_bl: "-", behind: "--", behind_html: "-", gap_b: "--", gap_b_bl: "--", time_b_ll: "-", time_b_bl: "-", num: "--", time: "--:--", laps: "-", ca: 0, cb: 0, cab: 0, cbb: 1 });
         const msgPair = new Paho.MQTT.Message(pairLite);
         msgPair.destinationName = "pitboard/" + currentDeviceId + "/live";
@@ -368,6 +399,8 @@ function updateBanner() {
 }
 
 function closeTimingSocket() {
+    lastTimingContactAt = 0;
+    latestLiveTelemetry = null;
     if (window.wsTimeout) clearTimeout(window.wsTimeout);
     window.wsTimeout = null;
     if (time2raceHeartbeat) clearInterval(time2raceHeartbeat);
@@ -389,26 +422,26 @@ window.loadNewRace = function() {
         if (match && match[1]) {
             currentRaceId = match[1]; activeEngine = 'time2race';
             localStorage.setItem('pit_race_id', currentRaceId); localStorage.setItem('pit_active_engine', activeEngine);
-            resetDashboard(); connectTime2Race(); 
+            resetDashboard(true); connectTime2Race(); 
         }
     } else if (inputUrl.includes('speedhive.mylaps.com')) {
         const match = inputUrl.match(/sessions\/([A-Za-z0-9\-]+)/);
         if (match && match[1]) {
             currentRaceId = match[1]; activeEngine = 'mylaps';
             localStorage.setItem('pit_race_id', currentRaceId); localStorage.setItem('pit_active_engine', activeEngine);
-            resetDashboard(); connectMylaps(currentRaceId);
+            resetDashboard(true); connectMylaps(currentRaceId);
         } else { window.setButtonState('error'); alert("Invalid MYLAPS link."); }
     } else if (inputUrl.includes('livetiming.ficr.it')) {
         const match = inputUrl.match(/livetiming\.ficr\.it\/([^\/]+)/);
         if (match && match[1]) {
             currentRaceId = match[1]; activeEngine = 'ficr';
             localStorage.setItem('pit_race_id', currentRaceId); localStorage.setItem('pit_active_engine', activeEngine);
-            resetDashboard(); connectFicr(currentRaceId);
+            resetDashboard(true); connectFicr(currentRaceId);
         } else { window.setButtonState('error'); alert("Invalid FICR link."); }
     } else if (inputUrl.includes('mgmtiming.it')) {
         currentRaceId = inputUrl; activeEngine = 'mgm';
         localStorage.setItem('pit_race_id', currentRaceId); localStorage.setItem('pit_active_engine', activeEngine);
-        resetDashboard(); connectMgm(currentRaceId);
+        resetDashboard(true); connectMgm(currentRaceId);
     } else { window.setButtonState('error'); alert("Unsupported race link. Paste a MYLAPS, FICR, MGM, or Time2Race link."); }
 }
 
@@ -432,7 +465,10 @@ window.stopSession = function() {
     document.getElementById('settingsPanel').classList.remove('collapsed');
 }
 
-function resetDashboard() {
+function resetDashboard(clearDisplay = false) {
+    if (clearDisplay) clearSelectedRiderTelemetry(true);
+    latestLiveTelemetry = null;
+    lastTimingContactAt = 0;
     time2raceConnectedOnce = false;
     time2raceReconnectAttempt = 0;
     sessionTimeLeft = "--:--"; myDriverLaps = "-"; isRaceSession = false; 
@@ -533,8 +569,10 @@ async function pollFicr(eventName, sessionId) {
         
         let parsedData;
         try { parsedData = JSON.parse(rawText); } catch(e) { window.ficrTimeout = setTimeout(() => pollFicr(eventName, sessionId), 3000); return; }
+        if (activeEngine !== 'ficr' || String(currentRaceId) !== String(eventName)) return;
 
         if (Array.isArray(parsedData) && parsedData.length > 1) {
+            lastTimingContactAt = Date.now();
             const sessionInfo = parsedData[0]; const driversArray = parsedData[1]; 
             if (sessionInfo.b) { isRaceSession = String(sessionInfo.b).toLowerCase().includes('gara') || String(sessionInfo.b).toLowerCase().includes('race'); }
             sessionTimeLeft = sessionInfo.j || sessionInfo.k || "--:--"; updateBanner();
@@ -577,9 +615,10 @@ function connectTime2Race() {
     };
     socket.onmessage = function(event) {
         if (!current()) return;
-        if (event.data === 'ping' || event.data === 'pong') return;
+        if (event.data === 'ping' || event.data === 'pong') { lastTimingContactAt = Date.now(); return; }
         try {
             const payload = JSON.parse(event.data);
+            lastTimingContactAt = Date.now();
             const timestamp = Number(payload.timestamp);
             if (Number.isFinite(timestamp)) {
                 if (timestamp < newestTimestamp) return;
@@ -637,6 +676,7 @@ async function connectMylaps(sessionId) {
                 if(msg) {
                     try {
                         const payload = JSON.parse(msg);
+                        lastTimingContactAt = Date.now();
                         if(payload.type === 1 && payload.arguments && payload.arguments[0]) {
                             const arg = payload.arguments[0];
                             if (arg.sessionName) isRaceSession = String(arg.sessionName).toLowerCase().includes('gara') || String(arg.sessionName).toLowerCase().includes('race');
@@ -674,9 +714,9 @@ async function connectMgm(originalUrl) {
         ws = new WebSocket(wsUrl);
         ws.onopen = function() { window.setButtonState('connected'); document.getElementById('settingsPanel').classList.add('collapsed'); };
         ws.onmessage = function(event) {
-            if (event.data === '{}') return; 
             try {
                 const payload = JSON.parse(event.data);
+                lastTimingContactAt = Date.now();
                 if (payload.M && Array.isArray(payload.M)) {
                     payload.M.forEach(msg => {
                         if (msg.M === "updatelivePage" && msg.A && Array.isArray(msg.A)) {
@@ -763,7 +803,8 @@ document.addEventListener('focusout', event => {
     }
 });
 
-function clearSelectedRiderTelemetry() {
+function clearSelectedRiderTelemetry(unpair = false) {
+    latestLiveTelemetry = null;
     myDriverLaps = '-';
     updateBanner();
     if (isMqttConnected && currentDeviceId !== '') {
@@ -771,7 +812,7 @@ function clearSelectedRiderTelemetry() {
             p: '-', gap: '--', ahead: '--', ahead_html: '--', gap_a: '--', gap_a_bl: '--',
             time_a_ll: '--:--', time_a_bl: '--:--', behind: '--', behind_html: '--',
             gap_b: '--', gap_b_bl: '--', time_b_ll: 'P-', time_b_bl: '#--',
-            num: '--', time: sessionTimeLeft, laps: '-', ca: 0, cb: 0, cab: 0, cbb: 1
+            num: '--', time: sessionTimeLeft, laps: '-', ca: 0, cb: 0, cab: 0, cbb: unpair ? 2 : 1
         };
         const resetMessage = new Paho.MQTT.Message(JSON.stringify(emptyTelemetry));
         resetMessage.destinationName = `pitboard/${currentDeviceId}/live`;
@@ -895,7 +936,7 @@ function updateDashboard(driversList) {
     for (const row of Array.from(tbody.children)) if (!retainedRows.has(row)) row.remove();
 
     // La classifica completa resta utile anche prima di impostare il proprio pilota.
-    if (!selectedDriverId) return;
+    if (!selectedDriverId) { latestLiveTelemetry = null; return; }
 
     const myIndex = driversList.findIndex(d => String(getDriverId(d)) === String(selectedDriverId));
     if (myIndex === -1) {
@@ -996,7 +1037,7 @@ function updateDashboard(driversList) {
         } else { mqttBehindGapBL = "--"; }
     } else if (myIndex >= 0 && driversList.length > 0) { mqttBehind = "--"; }
     
-    if (typeof mqttClient !== 'undefined' && isMqttConnected && currentDeviceId !== "") {
+    if (currentDeviceId !== "") {
         const payloadLite = JSON.stringify({
             p: String(myPos), gap: gapText, 
             target_pit: targetInPit,
@@ -1009,9 +1050,7 @@ function updateDashboard(driversList) {
             my_best: formatLapTime(myDriver.besttime || myDriver.btTm),
             ca: c_a, cb: c_b, cab: flag_catch, cbb: 1
         });
-        const msgLite = new Paho.MQTT.Message(payloadLite);
-        msgLite.destinationName = "pitboard/" + currentDeviceId + "/live";
-        try { mqttClient.send(msgLite); } catch(e) {}
+        rememberLiveTelemetry(payloadLite);
     }
 }
 
