@@ -63,6 +63,28 @@ function parseGapToMs(gapStr) {
     return isNaN(val) ? 0 : val * 1000;
 }
 
+function getLeaderDifference(driver) {
+    // Time2Race: difference is to the leader; gap is only to the previous rider.
+    return driverField(driver, ['difference', 'df', 'gap']) || '--';
+}
+
+function hasTimedDifference(value) {
+    return /^[+-]?\d+(?::\d+){0,2}(?:[.,]\d+)?$/.test(String(value).trim());
+}
+
+function time2raceRemaining(race) {
+    if (race.endrace) return 'ENDED';
+    // racetime is elapsed time and must never be labelled REMAINING on the display.
+    return driverField(race, ['remaining', 'timeremaining', 'time_left', 'texttogo']) || '--:--';
+}
+
+function time2raceIsRace(race) {
+    const type=String(race.runtype || '').trim().toUpperCase();
+    if (['R','RACE','GARA'].includes(type)) return true;
+    if (['Q','P','W','QUALIFYING','PRACTICE','WARMUP'].includes(type)) return false;
+    return /gara|race/i.test(String(race.name || race.sessionname || ''));
+}
+
 function updatePairingUI() {
     const statusEl = document.getElementById("pairStatus");
     if (!statusEl) return;
@@ -566,9 +588,8 @@ function connectTime2Race() {
             time2raceReconnectAttempt = 0;
             const raceInfo = payload.race || (payload.data ? payload.data.race : null);
             if (raceInfo) {
-                sessionTimeLeft = raceInfo.remaining || raceInfo.timeremaining || raceInfo.time_left || raceInfo.racetime || "--:--";
-                if (raceInfo.endrace) sessionTimeLeft = "ENDED";
-                isRaceSession = String(raceInfo.name || raceInfo.sessionname || "").toLowerCase().includes('gara') || String(raceInfo.name || raceInfo.sessionname || "").toLowerCase().includes('race');
+                sessionTimeLeft = time2raceRemaining(raceInfo);
+                isRaceSession = time2raceIsRace(raceInfo);
                 updateBanner();
             }
             let incomingDrivers = payload.drivers || (payload.data ? payload.data.drivers : null);
@@ -885,7 +906,7 @@ function updateDashboard(driversList) {
     const myDriver = driversList[myIndex];
     const myTarget = selectedTargetId ? driversList.find(d => String(getDriverId(d)) === String(selectedTargetId)) : null;
 
-    myDriverLaps = myDriver.laps || '-'; updateBanner();
+    myDriverLaps = myDriver.laps ?? '-'; updateBanner();
     let myPos = parseInt(myDriver.position || myDriver.pos, 10) || (myIndex + 1);
 
     let overallBestMs = Infinity;
@@ -903,7 +924,7 @@ function updateDashboard(driversList) {
     let myLastMs = parseTimeToMs(formatLapTime(myDriver.lasttime || myDriver.lsTm));
     let mqttAhead = '--'; let mqttAheadGap = '--'; let mqttAheadGapBL = '--'; let c_a = 0;
     let mqttBehind = '--'; let mqttBehindGap = '--'; let mqttBehindGapBL = '--'; let c_b = 0;
-    let myDiffStr = String(myDriver.gap || myDriver.difference || myDriver.df || '0');
+    let myDiffStr = getLeaderDifference(myDriver);
     let myDiffMs = parseGapToMs(myDiffStr);
     let t_pos = "--", t_num = "--", t_last = "--", t_best = "--", t_pace_delta = "--", t_total_gap = "--";
     let flag_catch = 0;
@@ -924,12 +945,12 @@ function updateDashboard(driversList) {
             flag_catch = (diffMs < 0) ? 1 : (diffMs > 0 ? 2 : 0); 
         }
         if (isRaceSession) {
-            let theirDiffStr = String(myTarget.gap || myTarget.difference || myTarget.df || '0');
+            let theirDiffStr = getLeaderDifference(myTarget);
             let theirDiffMs = parseGapToMs(theirDiffStr);
-            if (!isLappedGap(myDiffStr) && !isLappedGap(theirDiffStr)) {
+            if (hasTimedDifference(myDiffStr) && hasTimedDifference(theirDiffStr)) {
                 let prefix = (parseInt(myTarget.position || myTarget.pos, 10) < myPos) ? "-" : "+";
                 t_total_gap = "GAP: " + prefix + (Math.abs(myDiffMs - theirDiffMs) / 1000).toFixed(3);
-            } else { t_total_gap = "GAP: LAPPED"; }
+            } else { t_total_gap = isLappedGap(myDiffStr) || isLappedGap(theirDiffStr) ? "GAP: LAPPED" : "GAP: --"; }
         } else {
             let targetBestMs = parseTimeToMs(t_best);
             if (myBestMs > 0 && targetBestMs > 0) {
@@ -944,11 +965,12 @@ function updateDashboard(driversList) {
         mqttAhead = "#" + String(driverAhead.raceno || driverAhead.no || driverAhead.number || driverAhead.num || "").trim();
         let theirLastMs = parseTimeToMs(formatLapTime(driverAhead.lasttime || driverAhead.lsTm));
         let theirBestMs = parseTimeToMs(formatLapTime(driverAhead.besttime || driverAhead.btTm));
-        let theirDiffStr = String(driverAhead.gap || driverAhead.difference || driverAhead.df || '0');
+        let theirDiffStr = getLeaderDifference(driverAhead);
         let theirDiffMs = parseGapToMs(theirDiffStr);
         let isLapped = isLappedGap(myDiffStr) || isLappedGap(theirDiffStr);
 
-        if (isLapped) { mqttAheadGap = "LAPPED"; } else { mqttAheadGap = "+" + (Math.abs(myDiffMs - theirDiffMs) / 1000).toFixed(3); }
+        if (isLapped) { mqttAheadGap = "LAPPED"; }
+        else if (hasTimedDifference(myDiffStr) && hasTimedDifference(theirDiffStr)) { mqttAheadGap = "+" + (Math.abs(myDiffMs - theirDiffMs) / 1000).toFixed(3); }
         if (myLastMs > 0 && theirLastMs > 0) c_a = (myLastMs <= theirLastMs) ? 1 : 2;
         if (myBestMs > 0 && theirBestMs > 0) {
             let diffMsBL = myBestMs - theirBestMs; 
@@ -961,11 +983,12 @@ function updateDashboard(driversList) {
         mqttBehind = "#" + String(driverBehind.raceno || driverBehind.no || driverBehind.number || driverBehind.num || "").trim();
         let theirLastMs = parseTimeToMs(formatLapTime(driverBehind.lasttime || driverBehind.lsTm));
         let theirBestMs = parseTimeToMs(formatLapTime(driverBehind.besttime || driverBehind.btTm));
-        let theirDiffStr = String(driverBehind.gap || driverBehind.difference || driverBehind.df || '0');
+        let theirDiffStr = getLeaderDifference(driverBehind);
         let theirDiffMs = parseGapToMs(theirDiffStr);
         let isLapped = isLappedGap(myDiffStr) || isLappedGap(theirDiffStr);
 
-        if (isLapped) { mqttBehindGap = "LAPPED"; } else { mqttBehindGap = "+" + (Math.abs(myDiffMs - theirDiffMs) / 1000).toFixed(3); }
+        if (isLapped) { mqttBehindGap = "LAPPED"; }
+        else if (hasTimedDifference(myDiffStr) && hasTimedDifference(theirDiffStr)) { mqttBehindGap = "+" + (Math.abs(myDiffMs - theirDiffMs) / 1000).toFixed(3); }
         if (myLastMs > 0 && theirLastMs > 0) c_b = (myLastMs <= theirLastMs) ? 1 : 2;
         if (myBestMs > 0 && theirBestMs > 0) {
             let diffMsBL = myBestMs - theirBestMs; 
@@ -982,6 +1005,8 @@ function updateDashboard(driversList) {
             behind: mqttBehind, behind_html: t_pace_delta, 
             gap_b: mqttBehindGap, gap_b_bl: mqttBehindGapBL, time_b_ll: t_pos, time_b_bl: t_num,
             num: myNumText, time: sessionTimeLeft, laps: String(myDriverLaps),
+            my_last: formatLapTime(myDriver.lasttime || myDriver.lsTm),
+            my_best: formatLapTime(myDriver.besttime || myDriver.btTm),
             ca: c_a, cb: c_b, cab: flag_catch, cbb: 1
         });
         const msgLite = new Paho.MQTT.Message(payloadLite);
@@ -1064,7 +1089,8 @@ function connectMQTT(index = null) {
                 mqttConnecting[i] = false;
                 try { client.subscribe('pitboard/+/status'); } catch (error) {}
                 refreshMqttConnectionState();
-                if (currentDeviceId !== '') pairDevice();
+                // A broker reconnect must not publish an empty pairing packet over a healthy link.
+                if (currentDeviceId !== '' && lastKnownDrivers.length > 0) updateDashboard(lastKnownDrivers);
             },
             onFailure: function() {
                 mqttConnecting[i] = false;
